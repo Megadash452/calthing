@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">CalProv Example</string>
+    <string name="main_text">This text will show Calendar data when it is queried using the Android `Calendar Provider`.</string>
+
+    <string name="cal_perm_denied">Calendar Permission denied</string>
+    <string name="cal_perm_rationale_title">Access Calendar Permission</string>
+    <string name="cal_perm_rationale_body"><em>%1$s</em> needs to access your device\'s calendar data to be able to sync calendars between devices. You can allow the permission later in your device\'s apps settings</string>
+    <string name="cal_perm_rationale_confirm">Allow</string>
+    <string name="cal_perm_rationale_dismiss">Deny</string>
+</resources>
