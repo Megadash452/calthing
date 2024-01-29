@@ -1,6 +1,5 @@
 package me.marti.calprovexample.ui
 
-import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -42,15 +41,12 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.rememberTooltipState
-import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
@@ -143,6 +139,17 @@ class MainActivity : ComponentActivity() {
         if (calendarQueryManager.hasPermission())
             calendarQueryManager.runAction()
 
+        // A list of screens that can be rendered one at a time, and can be switched using tab functionality.
+        // The composable function is passed in the modifier with the required "swipe-able" setup.
+        val tabScreens: Array<@Composable (Modifier) -> Unit> = arrayOf(
+            { modifier -> Greeting(
+                modifier = modifier,
+                groupedCalendars = userCalendars.value,
+                hasSelectedDir = hasSelectedDir.value,
+            ) },
+            { modifier -> Text("hiii!!!!", modifier = modifier) }
+        )
+
         this.setContent {
             CalProvExampleTheme {
                 val containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -157,9 +164,7 @@ class MainActivity : ComponentActivity() {
                 // > ensures that the colors will adjust whether the app bar behavior is pinned or scrolled.
                 // > This may potentially animate or interpolate a transition between the container-color and the
                 // > container's scrolled-color according to the app bar's scroll state.
-                val colorTransitionFraction = scrollBehavior.state.overlappedFraction
-                // is the main surface content scrolled?
-                val isScrolled = colorTransitionFraction <= 0.01f
+                val isScrolled = scrollBehavior.state.overlappedFraction <= 0.01f
                 val topBarContainerColor by animateColorAsState(
                     targetValue = if (isScrolled) ComposeColor(0) else containerColor,
                     animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
@@ -179,13 +184,8 @@ class MainActivity : ComponentActivity() {
                     Column(modifier = Modifier.padding(paddingValues)) {
                         TabBar(selectedTab = selectedTab, containerColor = topBarContainerColor)
 
-                        when (selectedTab.intValue) {
-                            0 -> Greeting(
-                                groupedCalendars = userCalendars.value,
-                                hasSelectedDir = hasSelectedDir.value,
-                            )
-                            1 -> Text("hiii!!!!")
-                        }
+                        // TODO: add anchoredDraggable modifier
+                        tabScreens[selectedTab.intValue](Modifier)
                     }
                 }
                 this.calendarQueryManager.RationaleDialog()
@@ -311,7 +311,6 @@ class MainActivity : ComponentActivity() {
             modifier = modifier,
             selectedTabIndex = selectedTab.intValue,
             containerColor = containerColor,
-            // divider = {}
         ) {
             tabs.forEachIndexed { i, tab ->
                 // Tab(
