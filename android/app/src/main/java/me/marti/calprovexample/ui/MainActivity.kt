@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -48,14 +49,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
-import androidx.compose.ui.res.vectorResource
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.R
 import me.marti.calprovexample.UserCalendarListItem
@@ -107,10 +106,10 @@ class MainActivity : ComponentActivity() {
                 println("\t${file.name}")
             }
 
-            println("Calendars on device:")
-            for (cal in userCalendars(this.baseContext)!!) {
-                println("\t$cal")
-            }
+            // println("Calendars on device:")
+            // for (cal in userCalendars(this.baseContext)!!) {
+            //     println("\t$cal")
+            // }
         }
     }
 
@@ -125,25 +124,46 @@ class MainActivity : ComponentActivity() {
         if (calendarQueryManager.hasPermission())
             calendarQueryManager.runAction()
 
+        /** A list of screens that are rendered as the main content (depending on the selected tab) of the app. */
+        val tabItems: Array<TabItem> = arrayOf(
+            TabItem(
+                icon = { Icon(Icons.Default.DateRange, null) },
+                title = "Calendars",
+            ) { modifier ->
+                Greeting(
+                    modifier = modifier,
+                    groupedCalendars = userCalendars.value,
+                    hasSelectedDir = hasSelectedDir.value,
+                )
+            },
+            TabItem(
+                icon = { Icon(Icons.Default.AccountCircle, null) },
+                title = "Contacts",
+            ) { modifier ->
+                Text("hiii!!!!", modifier = modifier)
+            },
+            TabItem(
+                icon = { Icon(Icons.Default.Settings, null) },
+                title = "Settings",
+            ) { modifier ->
+                Text("Settings page", modifier = modifier)
+            },
+        )
+
         this.setContent {
             CalProvExampleTheme {
+                val selectedTab = remember { mutableIntStateOf(0) }
+
                 Scaffold(
                     contentWindowInsets = WindowInsets.systemBars,
                     bottomBar = {
                         NavBar(
-                            items = arrayOf(
-                                Pair({ Icon(Icons.Default.DateRange, null) }, "Calendars"),
-                                Pair({ Icon(Icons.Default.AccountCircle, null) }, "Contacts"),
-                                Pair({ Icon(Icons.Default.Settings, null) }, "Settings"),
-                            )
+                            items = tabItems.map { item -> item.toTabBarItem() },
+                            selectedItem = selectedTab
                         )
                     }
                 ) { paddingValues ->
-                    Greeting(
-                        Modifier.padding(paddingValues),
-                        groupedCalendars = this.userCalendars.value,
-                        hasSelectedDir = this.hasSelectedDir.value,
-                    )
+                    tabItems[selectedTab.intValue].content(Modifier.padding(paddingValues))
                 }
                 this.calendarQueryManager.RationaleDialog()
             }
@@ -159,7 +179,11 @@ class MainActivity : ComponentActivity() {
      */
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
-    fun Greeting(modifier: Modifier = Modifier, hasSelectedDir: Boolean = false, groupedCalendars: Map<String, List<UserCalendarListItem>>?) {
+    fun Greeting(
+        modifier: Modifier = Modifier,
+        hasSelectedDir: Boolean = false,
+        groupedCalendars: Map<String, List<UserCalendarListItem>>?
+    ) {
         Surface(
             modifier = modifier
                 .padding(OUTER_PADDING.dp)
@@ -172,29 +196,32 @@ class MainActivity : ComponentActivity() {
                 Text("Calendars:", style = MaterialTheme.typography.titleLarge)
 
                 Column(
-                    Modifier.padding(MIDDLE_PADDING.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     if (!hasSelectedDir) {
-                        Text("Please select a directory where to sync Calendars and Contacts.")
-                        IconTextButton(
-                            icon = painterResource(R.drawable.round_folder_24),
-                            text = "Select",
-                            onclick = {
-                                // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
-                                dirSelectIntent.launch(null)
-                            }
-                        )
+                        Column(modifier = Modifier.padding(MIDDLE_PADDING.dp)) {
+                            Text("Please select a directory where to sync Calendars and Contacts.")
+                            IconTextButton(
+                                icon = painterResource(R.drawable.round_folder_24),
+                                text = "Select",
+                                onclick = {
+                                    // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
+                                    dirSelectIntent.launch(null)
+                                }
+                            )
+                        }
                         Divider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 4).dp))
                     }
 
                     if (groupedCalendars == null) {
-                        Text("Please allow ${stringResource(R.string.app_name)} to read and write yo your device's calendar")
-                        IconTextButton(
-                            icon = painterResource(R.drawable.outline_sync_24),
-                            text = "Sync",
-                            onclick = { calendarQueryManager.runAction() }
-                        )
+                        Column(modifier = Modifier.padding(MIDDLE_PADDING.dp)) {
+                            Text("Please allow ${stringResource(R.string.app_name)} to read and write yo your device's calendar")
+                            IconTextButton(
+                                icon = painterResource(R.drawable.outline_sync_24),
+                                text = "Sync",
+                                onclick = { calendarQueryManager.runAction() }
+                            )
+                        }
                     } else {
                         LazyColumn(
                             Modifier
@@ -229,20 +256,18 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun NavBar(modifier: Modifier = Modifier, items: Array<Pair<@Composable () -> Unit, String>>) {
-        // remember which item is selected
-        var selected by remember { mutableIntStateOf(0) }
-
+    fun NavBar(
+        modifier: Modifier = Modifier,
+        items: List<Pair<@Composable () -> Unit, String>>,
+        selectedItem: MutableIntState = mutableIntStateOf(0)
+    ) {
         NavigationBar(modifier) {
             items.forEachIndexed { index, item ->
                 NavigationBarItem(
-                    selected = index == selected,
-                    label = { Text(item.second) },
                     icon = item.first,
-                    onClick = {
-                        selected = index
-                        // TODO: switch screens
-                    },
+                    label = { Text(item.second) },
+                    selected = selectedItem.intValue == index,
+                    onClick = { selectedItem.intValue = index },
                 )
             }
         }
@@ -251,6 +276,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun CalendarListItem(cal: UserCalendarListItem) {
+        // FIXME: LazyColumn forgets state when hidden on scroll
         var isChecked by remember { mutableStateOf(false) }
 
         ListItem(
@@ -281,6 +307,17 @@ class MainActivity : ComponentActivity() {
                         tint = androidx.compose.ui.graphics.Color(cal.color.R.toInt(), cal.color.G.toInt(), cal.color.B.toInt())
                     )
                 }
+                // TooltipBox(
+                //     positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                //     state = rememberTooltipState(),
+                //     tooltip = {
+                //         PlainTooltip {
+                //             Text("This calendar is synced")
+                //         }
+                //     },
+                // ) {
+                //
+                // }
             },
             trailingContent = {
                 Switch(
@@ -324,7 +361,7 @@ class MainActivity : ComponentActivity() {
     fun NavBarPreview() {
         CalProvExampleTheme {
             this.NavBar(
-                items = arrayOf(
+                items = listOf(
                     Pair({ Icon(Icons.Default.DateRange, null) }, "Calendars"),
                     Pair({ Icon(Icons.Default.AccountCircle, null) }, "Contacts"),
                     Pair({ Icon(Icons.Default.Settings, null) }, "Settings"),
@@ -357,53 +394,16 @@ fun IconTextButton(modifier: Modifier = Modifier, icon: Painter, text: String, o
     }
 }
 
-// @Composable
-// fun GenericDialog(
-//     icon: ImageVector,
-//     title: String,
-//     text: String,
-//     visibilityController: MutableState<Boolean>,
-//     confirmText: String = "Confirm",
-//     onConfirm: () -> Unit,
-//     dismissText: String = "Dismiss",
-//     onDismiss: () -> Unit,
-// ) {
-//     val dismiss: () -> Unit = {
-//         visibilityController.value = false
-//         onDismiss()
-//     }
-//
-//     if (visibilityController.value) {
-//         AlertDialog(
-//             icon = {
-//                 Icon(icon, contentDescription = "Example Icon")
-//             },
-//             title = {
-//                 Text(title)
-//             },
-//             text = {
-//                 Text(text)
-//             },
-//             onDismissRequest = dismiss,
-//             confirmButton = {
-//                 TextButton(
-//                     onClick = {
-//                         visibilityController.value = false
-//                         onConfirm()
-//                     },
-//                     content = {
-//                         Text(confirmText)
-//                     }
-//                 )
-//             },
-//             dismissButton = {
-//                 TextButton(
-//                     onClick = dismiss,
-//                     content = {
-//                         Text(dismissText)
-//                     }
-//                 )
-//             }
-//         )
-//     }
-// }
+/** Information about a tab in a TabBar or NavBar.
+ * @param content The content composable is passed a modifier. */
+class TabItem(
+    val icon: @Composable () -> Unit,
+    val title: String,
+    val content: @Composable (Modifier) -> Unit,
+) {
+    /** Convert the item to one that can be used by a real TabBar.
+     * @return the item's icon and title. */
+    fun toTabBarItem(): Pair<@Composable () -> Unit, String> {
+        return Pair(this.icon, this.title)
+    }
+}
