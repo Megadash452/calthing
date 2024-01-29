@@ -22,8 +22,14 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        debug {
+            isMinifyEnabled = false
+            isShrinkResources = false
+            ndk.debugSymbolLevel = "FULL"
         }
     }
     compileOptions {
@@ -51,14 +57,21 @@ android {
 }
 
 dependencies {
+    // Import material3
+    implementation("androidx.compose.material3:material3-android:1.2.0-rc01")
+    implementation("androidx.compose.material3:material3-window-size-class-android:1.2.0-rc01")
+    implementation("androidx.compose.material3:material3-adaptive:1.0.0-alpha05")
+    implementation("androidx.compose.material3:material3-adaptive-navigation-suite:1.0.0-alpha02")
+    // Android Studio Previews
+    implementation("androidx.compose.ui:ui-tooling-preview:1.6.0")
+    implementation("androidx.compose.ui:ui-tooling-preview-android:1.6.0")
+
     implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation(platform("androidx.compose:compose-bom:2023.08.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
     implementation("com.google.android.material:material:1.11.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

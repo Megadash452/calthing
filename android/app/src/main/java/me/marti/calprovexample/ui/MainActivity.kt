@@ -1,5 +1,6 @@
 package me.marti.calprovexample.ui
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -9,6 +10,9 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,19 +29,30 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LeadingIconTab
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.PlainTooltipBox
+import androidx.compose.material3.MediumTopAppBar
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -48,19 +63,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
-import androidx.compose.ui.res.vectorResource
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.R
 import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
+import androidx.compose.ui.graphics.Color as ComposeColor
 
 private const val OUTER_PADDING = 10
 private const val MIDDLE_PADDING = 8
@@ -107,13 +124,14 @@ class MainActivity : ComponentActivity() {
                 println("\t${file.name}")
             }
 
-            println("Calendars on device:")
-            for (cal in userCalendars(this.baseContext)!!) {
-                println("\t$cal")
-            }
+            // println("Calendars on device:")
+            // for (cal in userCalendars(this.baseContext)!!) {
+            //     println("\t$cal")
+            // }
         }
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must set navigationBarStyle to remove the scrim.
         enableEdgeToEdge(navigationBarStyle = SystemBarStyle.light(0, 0))
@@ -127,23 +145,48 @@ class MainActivity : ComponentActivity() {
 
         this.setContent {
             CalProvExampleTheme {
+                val containerColor = MaterialTheme.colorScheme.primaryContainer
+                val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+                val selectedTab = remember { mutableIntStateOf(0) }
+
+                /* FIXME: the content colors of the TopBar and TabBar are only in sync when using MediumTopAppBar.
+                 * At that point just put the TabBar inside the TopBar (but that doesn't look good either) */
+                // Hoist up the animation state from inside the TopAppBar to control both the TopBar and TabBar.
+                // -- Adapted from TopAppBar -> SingleRowTopAppBar:
+                // > Obtain the container color from the TopAppBarColors using the `overlapFraction`. This
+                // > ensures that the colors will adjust whether the app bar behavior is pinned or scrolled.
+                // > This may potentially animate or interpolate a transition between the container-color and the
+                // > container's scrolled-color according to the app bar's scroll state.
+                val colorTransitionFraction = scrollBehavior.state.overlappedFraction
+                // is the main surface content scrolled?
+                val isScrolled = colorTransitionFraction <= 0.01f
+                val topBarContainerColor by animateColorAsState(
+                    targetValue = if (isScrolled) ComposeColor(0) else containerColor,
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "topAppBarContainerColorAnimation"
+                )
+
                 Scaffold(
+                    modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
                     contentWindowInsets = WindowInsets.systemBars,
-                    bottomBar = {
-                        NavBar(
-                            items = arrayOf(
-                                Pair({ Icon(Icons.Default.DateRange, null) }, "Calendars"),
-                                Pair({ Icon(Icons.Default.AccountCircle, null) }, "Contacts"),
-                                Pair({ Icon(Icons.Default.Settings, null) }, "Settings"),
-                            )
-                        )
-                    }
+                    topBar = { TopBar(
+                        title = { Text(stringResource(R.string.app_name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        // title = { TabBar(selectedTab = selectedTab, containerColor = ComposeColor(0) },
+                        containerColor = topBarContainerColor,
+                        scrollBehavior = scrollBehavior
+                    ) }
                 ) { paddingValues ->
-                    Greeting(
-                        Modifier.padding(paddingValues),
-                        groupedCalendars = this.userCalendars.value,
-                        hasSelectedDir = this.hasSelectedDir.value,
-                    )
+                    Column(modifier = Modifier.padding(paddingValues)) {
+                        TabBar(selectedTab = selectedTab, containerColor = topBarContainerColor)
+
+                        when (selectedTab.intValue) {
+                            0 -> Greeting(
+                                groupedCalendars = userCalendars.value,
+                                hasSelectedDir = hasSelectedDir.value,
+                            )
+                            1 -> Text("hiii!!!!")
+                        }
+                    }
                 }
                 this.calendarQueryManager.RationaleDialog()
             }
@@ -160,67 +203,62 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
     fun Greeting(modifier: Modifier = Modifier, hasSelectedDir: Boolean = false, groupedCalendars: Map<String, List<UserCalendarListItem>>?) {
-        Surface(
-            modifier = modifier
-                .padding(OUTER_PADDING.dp)
-                .fillMaxWidth(),
-            tonalElevation = 2.dp,
-            shadowElevation = 5.dp,
-            shape = MaterialTheme.shapes.medium,
+        Column(
+            modifier.padding(MIDDLE_PADDING.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(Modifier.padding(MIDDLE_PADDING.dp)) {
-                Text("Calendars:", style = MaterialTheme.typography.titleLarge)
-
-                Column(
-                    Modifier.padding(MIDDLE_PADDING.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    if (!hasSelectedDir) {
-                        Text("Please select a directory where to sync Calendars and Contacts.")
-                        IconTextButton(
-                            icon = painterResource(R.drawable.round_folder_24),
-                            text = "Select",
-                            onclick = {
-                                // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
-                                dirSelectIntent.launch(null)
-                            }
-                        )
-                        Divider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 4).dp))
+            if (!hasSelectedDir) {
+                Text("Please select a directory where to sync Calendars and Contacts.")
+                IconTextButton(
+                    icon = painterResource(R.drawable.round_folder_24),
+                    text = "Select",
+                    onclick = {
+                        // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
+                        dirSelectIntent.launch(null)
                     }
+                )
+                HorizontalDivider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 4).dp))
+            }
 
-                    if (groupedCalendars == null) {
-                        Text("Please allow ${stringResource(R.string.app_name)} to read and write yo your device's calendar")
-                        IconTextButton(
-                            icon = painterResource(R.drawable.outline_sync_24),
-                            text = "Sync",
-                            onclick = { calendarQueryManager.runAction() }
-                        )
-                    } else {
-                        LazyColumn(
-                            Modifier
-                                .clip(MaterialTheme.shapes.small),
-                            verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp)
-                        ) {
-                            groupedCalendars.forEach { (accountName, calGroup) ->
-                                this.stickyHeader {
-                                    Surface(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        color = MaterialTheme.colorScheme.secondaryContainer,
-                                        tonalElevation = 0.dp,
-                                        shape = MaterialTheme.shapes.small,
-                                    ) {
-                                        Text(
-                                            text = accountName,
-                                            modifier = Modifier
-                                                .padding(2.dp)
-                                                .padding(start = 4.dp),
-                                            fontWeight = FontWeight.SemiBold,
-                                            style = MaterialTheme.typography.titleSmall
-                                        )
-                                    }
+            if (groupedCalendars == null) {
+                Text("Please allow ${stringResource(R.string.app_name)} to read and write yo your device's calendar")
+                IconTextButton(
+                    icon = painterResource(R.drawable.outline_sync_24),
+                    text = "Sync",
+                    onclick = { calendarQueryManager.runAction() }
+                )
+            } else {
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    tonalElevation = 1.dp,
+                    shadowElevation = 5.dp
+                ) {
+                    LazyColumn(
+                        Modifier
+                            .padding(4.dp)
+                            .clip(MaterialTheme.shapes.small),
+                        verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp)
+                    ) {
+                        groupedCalendars.forEach { (accountName, calGroup) ->
+                            this.stickyHeader {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    tonalElevation = 0.dp,
+                                    shape = MaterialTheme.shapes.small,
+                                ) {
+                                    Text(
+                                        text = accountName,
+                                        modifier = Modifier
+                                            .padding(2.dp)
+                                            .padding(start = 4.dp),
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
                                 }
-                                this.items(calGroup) { cal -> CalendarListItem(cal) }
                             }
+                            this.items(calGroup) { cal -> CalendarListItem(cal) }
                         }
                     }
                 }
@@ -228,21 +266,71 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun NavBar(modifier: Modifier = Modifier, items: Array<Pair<@Composable () -> Unit, String>>) {
-        // remember which item is selected
-        var selected by remember { mutableIntStateOf(0) }
+    fun TopBar(
+        modifier: Modifier = Modifier,
+        containerColor: ComposeColor = MaterialTheme.colorScheme.background,
+        scrollBehavior: TopAppBarScrollBehavior? = null,
+        title: @Composable () -> Unit,
+    ) {
+        val contentColor = MaterialTheme.colorScheme.primary
 
-        NavigationBar(modifier) {
-            items.forEachIndexed { index, item ->
-                NavigationBarItem(
-                    selected = index == selected,
-                    label = { Text(item.second) },
-                    icon = item.first,
-                    onClick = {
-                        selected = index
-                        // TODO: switch screens
-                    },
+        MediumTopAppBar(
+            modifier = modifier,
+            scrollBehavior = scrollBehavior,
+            title = { title() },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = containerColor,
+                scrolledContainerColor = containerColor,
+                titleContentColor = contentColor,
+                navigationIconContentColor = contentColor,
+                actionIconContentColor = contentColor,
+            ),
+            actions = {
+                IconButton(onClick = { /*TODO*/ }) {
+                    Icon(Icons.Default.Settings, "Settings")
+                }
+            }
+        )
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    fun TabBar(
+        modifier: Modifier = Modifier,
+        containerColor: ComposeColor =  MaterialTheme.colorScheme.primaryContainer,
+        selectedTab: MutableIntState = mutableIntStateOf(0),
+    ) {
+        val tabs = arrayOf(
+            Pair(Icons.Default.DateRange, "Calendars"),
+            Pair(Icons.Default.AccountCircle, "Contacts")
+        )
+
+        PrimaryTabRow(
+            modifier = modifier,
+            selectedTabIndex = selectedTab.intValue,
+            containerColor = containerColor,
+            // divider = {}
+        ) {
+            tabs.forEachIndexed { i, tab ->
+                // Tab(
+                //     icon = { Icon(tab.first, null) },
+                //     text = { Text(tab.second, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp) },
+                //     selectedContentColor = MaterialTheme.colorScheme.primary,
+                //     unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                //     selected = selectedTab.intValue == i,
+                //     onClick = { selectedTab.intValue = i }
+                // )
+
+                // Use the regular Tab when there is more than 2 tabs.
+                LeadingIconTab(
+                    icon = { Icon(tab.first, null) },
+                    text = { Text(tab.second, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp) },
+                    selectedContentColor = MaterialTheme.colorScheme.primary,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                    selected = selectedTab.intValue == i,
+                    onClick = { selectedTab.intValue = i }
                 )
             }
         }
@@ -251,6 +339,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun CalendarListItem(cal: UserCalendarListItem) {
+        // FIXME: LazyColumn resets state when it hides the item on scroll.
         var isChecked by remember { mutableStateOf(false) }
 
         ListItem(
@@ -271,14 +360,19 @@ class MainActivity : ComponentActivity() {
                 }
             },
             leadingContent = {
-                PlainTooltipBox(
-                    tooltip = { Text("This calendar is synced") }
+                TooltipBox(
+                    positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                    state = rememberTooltipState(),
+                    tooltip = {
+                        this.PlainTooltip {
+                            Text("This calendar is synced")
+                        }
+                    },
                 ) {
                     Icon(
-                        modifier = Modifier.tooltipAnchor(),
                         imageVector = Icons.Default.DateRange,
                         contentDescription = "Calendars list item",
-                        tint = androidx.compose.ui.graphics.Color(cal.color.R.toInt(), cal.color.G.toInt(), cal.color.B.toInt())
+                        tint = ComposeColor(cal.color.R.toInt(), cal.color.G.toInt(), cal.color.B.toInt())
                     )
                 }
             },
@@ -319,17 +413,16 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
-    @Preview
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Preview(showBackground = true)
     @Composable
-    fun NavBarPreview() {
+    fun TopBarPreview() {
         CalProvExampleTheme {
-            this.NavBar(
-                items = arrayOf(
-                    Pair({ Icon(Icons.Default.DateRange, null) }, "Calendars"),
-                    Pair({ Icon(Icons.Default.AccountCircle, null) }, "Contacts"),
-                    Pair({ Icon(Icons.Default.Settings, null) }, "Settings"),
-                )
-            )
+            Column {
+                TopBar(title = { Text("Title") } )
+                TabBar()
+                // TabBar(onTabSelect = { tab -> selectedTab = tab })
+            }
         }
     }
     @Preview(showBackground = true)
@@ -356,54 +449,3 @@ fun IconTextButton(modifier: Modifier = Modifier, icon: Painter, text: String, o
         Text(text, modifier.padding(start = 8.dp))
     }
 }
-
-// @Composable
-// fun GenericDialog(
-//     icon: ImageVector,
-//     title: String,
-//     text: String,
-//     visibilityController: MutableState<Boolean>,
-//     confirmText: String = "Confirm",
-//     onConfirm: () -> Unit,
-//     dismissText: String = "Dismiss",
-//     onDismiss: () -> Unit,
-// ) {
-//     val dismiss: () -> Unit = {
-//         visibilityController.value = false
-//         onDismiss()
-//     }
-//
-//     if (visibilityController.value) {
-//         AlertDialog(
-//             icon = {
-//                 Icon(icon, contentDescription = "Example Icon")
-//             },
-//             title = {
-//                 Text(title)
-//             },
-//             text = {
-//                 Text(text)
-//             },
-//             onDismissRequest = dismiss,
-//             confirmButton = {
-//                 TextButton(
-//                     onClick = {
-//                         visibilityController.value = false
-//                         onConfirm()
-//                     },
-//                     content = {
-//                         Text(confirmText)
-//                     }
-//                 )
-//             },
-//             dismissButton = {
-//                 TextButton(
-//                     onClick = dismiss,
-//                     content = {
-//                         Text(dismissText)
-//                     }
-//                 )
-//             }
-//         )
-//     }
-// }
