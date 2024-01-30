@@ -22,8 +22,14 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        debug {
+            isMinifyEnabled = false
+            isShrinkResources = false
+            ndk.debugSymbolLevel = "FULL"
         }
     }
     compileOptions {
@@ -51,12 +57,12 @@ android {
 }
 
 dependencies {
-    // Import Material3
-    implementation("androidx.compose.material3:material3")
+    // Import material3
+    implementation("androidx.compose.material3:material3:1.1.2")
     // implementation("androidx.compose.material3:material3-android:1.2.0-rc01")
-    // Android Studio Preview
+    // Android Studio Previews
     implementation("androidx.compose.ui:ui-tooling-preview:1.6.0")
-
+    implementation("androidx.compose.ui:ui-tooling-preview-android:1.6.0")
 
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")

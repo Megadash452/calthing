@@ -44,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -276,8 +277,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun CalendarListItem(cal: UserCalendarListItem) {
-        // FIXME: LazyColumn forgets state when hidden on scroll
-        var isChecked by remember { mutableStateOf(false) }
+        var isChecked by rememberSaveable { mutableStateOf(false) }
 
         ListItem(
             modifier = Modifier
@@ -298,26 +298,15 @@ class MainActivity : ComponentActivity() {
             },
             leadingContent = {
                 PlainTooltipBox(
-                    tooltip = { Text("This calendar is synced") }
+                    tooltip = { Text("This calendar is synced") },
                 ) {
                     Icon(
                         modifier = Modifier.tooltipAnchor(),
                         imageVector = Icons.Default.DateRange,
                         contentDescription = "Calendars list item",
-                        tint = androidx.compose.ui.graphics.Color(cal.color.R.toInt(), cal.color.G.toInt(), cal.color.B.toInt())
+                        tint = cal.color.toColor()
                     )
                 }
-                // TooltipBox(
-                //     positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                //     state = rememberTooltipState(),
-                //     tooltip = {
-                //         PlainTooltip {
-                //             Text("This calendar is synced")
-                //         }
-                //     },
-                // ) {
-                //
-                // }
             },
             trailingContent = {
                 Switch(
