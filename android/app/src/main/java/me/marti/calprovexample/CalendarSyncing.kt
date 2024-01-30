@@ -35,7 +35,7 @@ fun userCalendars(context: Context): Array<UserCalendarListItem>? {
     }
 }
 
-class UserCalendarListItem(
+data class UserCalendarListItem(
     val name: String,
     val accountName: String,
     val color: Color,
