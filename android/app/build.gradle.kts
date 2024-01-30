@@ -58,10 +58,8 @@ android {
 
 dependencies {
     // Import material3
-    implementation("androidx.compose.material3:material3-android:1.2.0-rc01")
-    implementation("androidx.compose.material3:material3-window-size-class-android:1.2.0-rc01")
-    implementation("androidx.compose.material3:material3-adaptive:1.0.0-alpha05")
-    implementation("androidx.compose.material3:material3-adaptive-navigation-suite:1.0.0-alpha02")
+    implementation("androidx.compose.material3:material3:1.1.2")
+    // implementation("androidx.compose.material3:material3-android:1.2.0-rc01")
     // Android Studio Previews
     implementation("androidx.compose.ui:ui-tooling-preview:1.6.0")
     implementation("androidx.compose.ui:ui-tooling-preview-android:1.6.0")

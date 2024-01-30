@@ -1,6 +1,5 @@
 package me.marti.calprovexample.ui
 
-import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -14,14 +13,20 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -29,28 +34,24 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LeadingIconTab
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.PlainTooltipBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
-import androidx.compose.material3.rememberTooltipState
-import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
@@ -58,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -217,7 +219,7 @@ class MainActivity : ComponentActivity() {
                         dirSelectIntent.launch(null)
                     }
                 )
-                HorizontalDivider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 4).dp))
+                Divider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 4).dp))
             }
 
             if (groupedCalendars == null) {
@@ -288,14 +290,13 @@ class MainActivity : ComponentActivity() {
                 actionIconContentColor = contentColor,
             ),
             actions = {
-                IconButton(onClick = { /*TODO*/ }) {
+                IconButton(onClick = { /* Open Settings activity */ }) {
                     Icon(Icons.Default.Settings, "Settings")
                 }
             }
         )
     }
-
-    @OptIn(ExperimentalMaterial3Api::class)
+    
     @Composable
     fun TabBar(
         modifier: Modifier = Modifier,
@@ -307,11 +308,23 @@ class MainActivity : ComponentActivity() {
             Pair(Icons.Default.AccountCircle, "Contacts")
         )
 
-        PrimaryTabRow(
+        TabRow(
             modifier = modifier,
             selectedTabIndex = selectedTab.intValue,
             containerColor = containerColor,
-            // divider = {}
+            divider = { Divider(thickness = 1.dp, color = MaterialTheme.colorScheme.surfaceVariant) },
+            // indicator = { tabPositions ->
+            //     if (selectedTab.intValue < tabPositions.size) {
+            //         Box(
+            //             modifier
+            //                 .wrapContentSize(Alignment.BottomStart)
+            //                 .offset(x = tabPositions[selectedTab.intValue].left)
+            //                 .width(32.dp)
+            //                 .height(3.dp)
+            //                 .background(color = MaterialTheme.colorScheme.secondary)
+            //         )
+            //     }
+            // }
         ) {
             tabs.forEachIndexed { i, tab ->
                 // Tab(
@@ -360,16 +373,11 @@ class MainActivity : ComponentActivity() {
                 }
             },
             leadingContent = {
-                TooltipBox(
-                    positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                    state = rememberTooltipState(),
-                    tooltip = {
-                        this.PlainTooltip {
-                            Text("This calendar is synced")
-                        }
-                    },
+                PlainTooltipBox(
+                    tooltip = { Text("This calendar is synced") },
                 ) {
                     Icon(
+                        modifier = Modifier.tooltipAnchor(),
                         imageVector = Icons.Default.DateRange,
                         contentDescription = "Calendars list item",
                         tint = ComposeColor(cal.color.R.toInt(), cal.color.G.toInt(), cal.color.B.toInt())
@@ -419,9 +427,9 @@ class MainActivity : ComponentActivity() {
     fun TopBarPreview() {
         CalProvExampleTheme {
             Column {
-                TopBar(title = { Text("Title") } )
-                TabBar()
-                // TabBar(onTabSelect = { tab -> selectedTab = tab })
+                val containerColor = MaterialTheme.colorScheme.primaryContainer
+                TopBar(title = { Text("Title") }, containerColor = containerColor)
+                TabBar(containerColor = containerColor)
             }
         }
     }
