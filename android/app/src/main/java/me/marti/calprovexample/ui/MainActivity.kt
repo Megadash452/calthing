@@ -10,25 +10,32 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.DateRange
@@ -71,6 +78,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
@@ -313,18 +321,24 @@ class MainActivity : ComponentActivity() {
             selectedTabIndex = selectedTab.intValue,
             containerColor = containerColor,
             divider = { Divider(thickness = 1.dp, color = MaterialTheme.colorScheme.surfaceVariant) },
-            // indicator = { tabPositions ->
-            //     if (selectedTab.intValue < tabPositions.size) {
-            //         Box(
-            //             modifier
-            //                 .wrapContentSize(Alignment.BottomStart)
-            //                 .offset(x = tabPositions[selectedTab.intValue].left)
-            //                 .width(32.dp)
-            //                 .height(3.dp)
-            //                 .background(color = MaterialTheme.colorScheme.secondary)
-            //         )
-            //     }
-            // }
+            indicator = { tabPositions ->
+                val indicatorWidth = 72.dp
+                val currentTabPosition = tabPositions[selectedTab.intValue]
+                val indicatorOffset by animateDpAsState(
+                    targetValue = currentTabPosition.left,
+                    animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                    label = "TabIndicatorPosition"
+                )
+                Spacer(
+                    Modifier
+                        .wrapContentSize(Alignment.BottomStart)
+                        // Center the indicator on the tab
+                        .offset(x = indicatorOffset + (currentTabPosition.width - indicatorWidth) / 2)
+                        .requiredHeight(3.dp)
+                        .requiredWidth(indicatorWidth)
+                        .background(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(3.0.dp))
+                )
+            }
         ) {
             tabs.forEachIndexed { i, tab ->
                 // Tab(
