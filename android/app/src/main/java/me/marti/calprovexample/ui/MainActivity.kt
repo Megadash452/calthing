@@ -10,43 +10,50 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LeadingIconTab
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.PlainTooltipBox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
@@ -54,6 +61,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -217,7 +225,7 @@ class MainActivity : ComponentActivity() {
                         dirSelectIntent.launch(null)
                     }
                 )
-                HorizontalDivider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 4).dp))
+                Divider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 4).dp))
             }
 
             if (groupedCalendars == null) {
@@ -288,14 +296,13 @@ class MainActivity : ComponentActivity() {
                 actionIconContentColor = contentColor,
             ),
             actions = {
-                IconButton(onClick = { /*TODO*/ }) {
+                IconButton(onClick = { /* Open Settings activity */ }) {
                     Icon(Icons.Default.Settings, "Settings")
                 }
             }
         )
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun TabBar(
         modifier: Modifier = Modifier,
@@ -307,10 +314,29 @@ class MainActivity : ComponentActivity() {
             Pair(Icons.Default.AccountCircle, "Contacts")
         )
 
-        PrimaryTabRow(
+        TabRow(
             modifier = modifier,
             selectedTabIndex = selectedTab.intValue,
             containerColor = containerColor,
+            divider = { Divider(thickness = 1.dp, color = MaterialTheme.colorScheme.surfaceVariant) },
+            indicator = { tabPositions ->
+                val indicatorWidth = 72.dp
+                val currentTabPosition = tabPositions[selectedTab.intValue]
+                val indicatorOffset by animateDpAsState(
+                    targetValue = currentTabPosition.left,
+                    animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                    label = "TabIndicatorPosition"
+                )
+                Spacer(
+                    Modifier
+                        .wrapContentSize(Alignment.BottomStart)
+                        // Center the indicator on the tab
+                        .offset(x = indicatorOffset + (currentTabPosition.width - indicatorWidth) / 2)
+                        .requiredHeight(3.dp)
+                        .requiredWidth(indicatorWidth)
+                        .background(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(3.0.dp))
+                )
+            }
         ) {
             tabs.forEachIndexed { i, tab ->
                 // Tab(
@@ -338,8 +364,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun CalendarListItem(cal: UserCalendarListItem) {
-        // FIXME: LazyColumn resets state when it hides the item on scroll.
-        var isChecked by remember { mutableStateOf(false) }
+        var isChecked by rememberSaveable { mutableStateOf(false) }
 
         ListItem(
             modifier = Modifier
@@ -359,19 +384,14 @@ class MainActivity : ComponentActivity() {
                 }
             },
             leadingContent = {
-                TooltipBox(
-                    positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                    state = rememberTooltipState(),
-                    tooltip = {
-                        this.PlainTooltip {
-                            Text("This calendar is synced")
-                        }
-                    },
+                PlainTooltipBox(
+                    tooltip = { Text("This calendar is synced") },
                 ) {
                     Icon(
+                        modifier = Modifier.tooltipAnchor(),
                         imageVector = Icons.Default.DateRange,
                         contentDescription = "Calendars list item",
-                        tint = ComposeColor(cal.color.R.toInt(), cal.color.G.toInt(), cal.color.B.toInt())
+                        tint = cal.color.toColor()
                     )
                 }
             },
@@ -418,9 +438,9 @@ class MainActivity : ComponentActivity() {
     fun TopBarPreview() {
         CalProvExampleTheme {
             Column {
-                TopBar(title = { Text("Title") } )
-                TabBar()
-                // TabBar(onTabSelect = { tab -> selectedTab = tab })
+                val containerColor = MaterialTheme.colorScheme.primaryContainer
+                TopBar(title = { Text("Title") }, containerColor = containerColor)
+                TabBar(containerColor = containerColor)
             }
         }
     }

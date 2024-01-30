@@ -1,19 +1,25 @@
 package me.marti.calprovexample
 
+import androidx.compose.ui.graphics.Color as ComposeColor
 
-class Color(
-    val R: UByte,
-    val G: UByte,
-    val B: UByte
+data class Color(
+    val r: UByte,
+    val g: UByte,
+    val b: UByte
 ) {
     /** Converts the color to a Hexadecimal representation of its RGB values.
      * The string always starts with a `#`.*/
     override fun toString(): String {
         var hex = "#"
-        hex += this.R.toString(16).padStart(2, '0')
-        hex += this.G.toString(16).padStart(2, '0')
-        hex += this.B.toString(16).padStart(2, '0')
+        hex += this.r.toString(16).padStart(2, '0')
+        hex += this.g.toString(16).padStart(2, '0')
+        hex += this.b.toString(16).padStart(2, '0')
         return hex
+    }
+
+    /** Convert this color to one that can be used by Jetpack Compose. */
+    fun toColor(): ComposeColor {
+        return ComposeColor(this.r.toInt(), this.g.toInt(), this.b.toInt())
     }
 }
 
