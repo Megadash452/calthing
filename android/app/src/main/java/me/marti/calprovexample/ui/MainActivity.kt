@@ -68,6 +68,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -313,6 +315,11 @@ class MainActivity : ComponentActivity() {
             Pair(Icons.Default.DateRange, "Calendars"),
             Pair(Icons.Default.AccountCircle, "Contacts")
         )
+        val iconSize = 24.dp
+        val density = LocalDensity.current
+        // The width of the indicator will change depending on the content of the selected tab.
+        // Value is set by onGloballyPositioned modifier of Tab's text.
+        val indicatorWidth = remember { mutableStateOf(0.dp) }
 
         TabRow(
             modifier = modifier,
@@ -320,8 +327,8 @@ class MainActivity : ComponentActivity() {
             containerColor = containerColor,
             divider = { Divider(thickness = 1.dp, color = MaterialTheme.colorScheme.surfaceVariant) },
             indicator = { tabPositions ->
-                val indicatorWidth = 72.dp
                 val currentTabPosition = tabPositions[selectedTab.intValue]
+                val width = indicatorWidth.value
                 val indicatorOffset by animateDpAsState(
                     targetValue = currentTabPosition.left,
                     animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
@@ -331,9 +338,9 @@ class MainActivity : ComponentActivity() {
                     Modifier
                         .wrapContentSize(Alignment.BottomStart)
                         // Center the indicator on the tab
-                        .offset(x = indicatorOffset + (currentTabPosition.width - indicatorWidth) / 2)
+                        .offset(x = indicatorOffset + (currentTabPosition.width - width) / 2)
                         .requiredHeight(3.dp)
-                        .requiredWidth(indicatorWidth)
+                        .requiredWidth(width)
                         .background(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(3.0.dp))
                 )
             }
@@ -341,19 +348,47 @@ class MainActivity : ComponentActivity() {
             tabs.forEachIndexed { i, tab ->
                 // Tab(
                 //     icon = { Icon(tab.first, null) },
-                //     text = { Text(tab.second, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp) },
+                //     text = {
+                //         Text(
+                //             tab.second,
+                //             modifier = if (selectedTab.intValue == i) {
+                //                 Modifier.onGloballyPositioned {
+                //                     indicatorWidth.value = with(density) {
+                //                         // The width of the indicator is the of the text or the icon, whichever is greater.
+                //                         max(it.size.width.toDp(), iconSize)
+                //                     }
+                //                 }
+                //             } else { Modifier },
+                //             fontWeight = FontWeight.SemiBold,
+                //             letterSpacing = 0.5.sp
+                //         )
+                //     },
                 //     selectedContentColor = MaterialTheme.colorScheme.primary,
-                //     unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                //     unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 //     selected = selectedTab.intValue == i,
                 //     onClick = { selectedTab.intValue = i }
                 // )
 
                 // Use the regular Tab when there is more than 2 tabs.
                 LeadingIconTab(
-                    icon = { Icon(tab.first, null) },
-                    text = { Text(tab.second, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp) },
+                    icon = { Icon(tab.first, null, modifier = Modifier.size(iconSize)) },
+                    text = {
+                        Text(
+                            tab.second,
+                            modifier = if (selectedTab.intValue == i) {
+                                Modifier.onGloballyPositioned {
+                                    indicatorWidth.value = with(density) {
+                                        // The width of the indicator is the width of the icon + padding + width of text.
+                                        iconSize + 8.dp + it.size.width.toDp()
+                                    }
+                                }
+                            } else { Modifier },
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.5.sp
+                        )
+                    },
                     selectedContentColor = MaterialTheme.colorScheme.primary,
-                    unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     selected = selectedTab.intValue == i,
                     onClick = { selectedTab.intValue = i }
                 )
