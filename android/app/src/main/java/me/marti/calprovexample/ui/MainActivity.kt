@@ -62,8 +62,8 @@ import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 
-private const val OUTER_PADDING = 10
-private const val MIDDLE_PADDING = 8
+private const val OUTER_PADDING = 8
+private const val MIDDLE_PADDING = 4
 private const val LIST_ITEM_SPACING = 4
 
 class MainActivity : ComponentActivity() {
@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
                 icon = { Icon(Icons.Default.DateRange, null) },
                 title = "Calendars",
             ) { modifier ->
-                Greeting(
+                Calendars(
                     modifier = modifier,
                     groupedCalendars = userCalendars.value,
                     hasSelectedDir = hasSelectedDir.value,
@@ -180,75 +180,83 @@ class MainActivity : ComponentActivity() {
      */
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
-    fun Greeting(
+    fun Calendars(
         modifier: Modifier = Modifier,
         hasSelectedDir: Boolean = false,
         groupedCalendars: Map<String, List<UserCalendarListItem>>?
     ) {
-        Surface(
-            modifier = modifier
-                .padding(OUTER_PADDING.dp)
-                .fillMaxWidth(),
-            tonalElevation = 2.dp,
-            shadowElevation = 5.dp,
-            shape = MaterialTheme.shapes.medium,
-        ) {
-            Column(Modifier.padding(MIDDLE_PADDING.dp)) {
-                Text("Calendars:", style = MaterialTheme.typography.titleLarge)
+        Column(modifier.padding(OUTER_PADDING.dp)) {
+            Text(
+                "Calendars",
+                modifier = Modifier.padding(bottom = OUTER_PADDING.dp),
+                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.titleLarge
+            )
 
+            if (!hasSelectedDir) {
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.padding(OUTER_PADDING.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    if (!hasSelectedDir) {
-                        Column(modifier = Modifier.padding(MIDDLE_PADDING.dp)) {
-                            Text("Please select a directory where to sync Calendars and Contacts.")
-                            IconTextButton(
-                                icon = painterResource(R.drawable.round_folder_24),
-                                text = "Select",
-                                onclick = {
-                                    // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
-                                    dirSelectIntent.launch(null)
-                                }
-                            )
+                    Text("Please select a directory where to sync Calendars and Contacts.")
+                    IconTextButton(
+                        icon = painterResource(R.drawable.round_folder_24),
+                        text = "Select",
+                        onclick = {
+                            // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
+                            dirSelectIntent.launch(null)
                         }
-                        Divider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 4).dp))
-                    }
+                    )
+                }
+                Divider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 2).dp))
+            }
 
-                    if (groupedCalendars == null) {
-                        Column(modifier = Modifier.padding(MIDDLE_PADDING.dp)) {
-                            Text("Please allow ${stringResource(R.string.app_name)} to read and write yo your device's calendar")
-                            IconTextButton(
-                                icon = painterResource(R.drawable.outline_sync_24),
-                                text = "Sync",
-                                onclick = { calendarQueryManager.runAction() }
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            Modifier
-                                .clip(MaterialTheme.shapes.small),
-                            verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp)
-                        ) {
-                            groupedCalendars.forEach { (accountName, calGroup) ->
-                                this.stickyHeader {
-                                    Surface(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        color = MaterialTheme.colorScheme.secondaryContainer,
-                                        tonalElevation = 0.dp,
-                                        shape = MaterialTheme.shapes.small,
-                                    ) {
-                                        Text(
-                                            text = accountName,
-                                            modifier = Modifier
-                                                .padding(2.dp)
-                                                .padding(start = 4.dp),
-                                            fontWeight = FontWeight.SemiBold,
-                                            style = MaterialTheme.typography.titleSmall
-                                        )
-                                    }
+            if (groupedCalendars == null) {
+                Column(
+                    modifier = Modifier.padding(OUTER_PADDING.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("Please allow ${stringResource(R.string.app_name)} to read and write yo your device's calendar")
+                    IconTextButton(
+                        icon = painterResource(R.drawable.outline_sync_24),
+                        text = "Sync",
+                        onclick = { calendarQueryManager.runAction() }
+                    )
+                }
+            } else {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    tonalElevation = 2.dp,
+                    shadowElevation = 5.dp,
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    LazyColumn(
+                        Modifier
+                            .padding(MIDDLE_PADDING.dp)
+                            .clip(MaterialTheme.shapes.small),
+                        verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp)
+                    ) {
+                        groupedCalendars.forEach { (accountName, calGroup) ->
+                            this.stickyHeader {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    tonalElevation = 0.dp,
+                                    shape = MaterialTheme.shapes.small,
+                                ) {
+                                    Text(
+                                        text = accountName,
+                                        modifier = Modifier
+                                            .padding(2.dp)
+                                            .padding(start = 4.dp),
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
                                 }
-                                this.items(calGroup) { cal -> CalendarListItem(cal) }
                             }
+                            this.items(calGroup) { cal -> CalendarListItem(cal) }
                         }
                     }
                 }
@@ -317,13 +325,13 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    @Preview(showBackground = true)
+    @Preview(showBackground = true, widthDp = 300)
     @Composable
-    fun GreetingPreview() {
+    fun CalendarsPreview() {
         val acc = "me@mydomain.me"
 
         CalProvExampleTheme {
-            this.Greeting(
+            this.Calendars(
                 hasSelectedDir = true,
                 groupedCalendars = arrayOf(
                     UserCalendarListItem(
@@ -345,7 +353,7 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
-    @Preview
+    @Preview(widthDp = 300)
     @Composable
     fun NavBarPreview() {
         CalProvExampleTheme {
@@ -358,14 +366,14 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
-    @Preview(showBackground = true)
+    @Preview(showBackground = true, widthDp = 300)
     @Composable
     fun GreetingNoPermPreview() {
         CalProvExampleTheme {
-            this.Greeting(groupedCalendars = null)
+            this.Calendars(groupedCalendars = null)
         }
     }
-    @Preview
+    @Preview(widthDp = 300)
     @Composable
     fun CalendarPermissionRationaleDialogPreview() {
         CalProvExampleTheme {
@@ -385,7 +393,7 @@ fun IconTextButton(modifier: Modifier = Modifier, icon: Painter, text: String, o
 
 /** Information about a tab in a TabBar or NavBar.
  * @param content The content composable is passed a modifier. */
-class TabItem(
+data class TabItem(
     val icon: @Composable () -> Unit,
     val title: String,
     val content: @Composable (Modifier) -> Unit,
