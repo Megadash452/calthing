@@ -67,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -85,8 +86,8 @@ import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 import androidx.compose.ui.graphics.Color as ComposeColor
 
-private const val OUTER_PADDING = 10
-private const val MIDDLE_PADDING = 8
+private const val OUTER_PADDING = 8
+private const val MIDDLE_PADDING = 4
 private const val LIST_ITEM_SPACING = 4
 
 class MainActivity : ComponentActivity() {
@@ -149,15 +150,24 @@ class MainActivity : ComponentActivity() {
         if (calendarQueryManager.hasPermission())
             calendarQueryManager.runAction()
 
-        // A list of screens that can be rendered one at a time, and can be switched using tab functionality.
-        // The composable function is passed in the modifier with the required "swipe-able" setup.
-        val tabScreens: Array<@Composable (Modifier) -> Unit> = arrayOf(
-            { modifier -> Greeting(
-                modifier = modifier,
-                groupedCalendars = userCalendars.value,
-                hasSelectedDir = hasSelectedDir.value,
-            ) },
-            { modifier -> Text("hiii!!!!", modifier = modifier) }
+        /** A list of screens that are rendered as the main content (depending on the selected tab) of the app. */
+        val tabItems: Array<TabItem> = arrayOf(
+            TabItem(
+                icon = Icons.Default.DateRange,
+                title = "Calendars",
+            ) { modifier ->
+                Calendars(
+                    modifier = modifier,
+                    groupedCalendars = userCalendars.value,
+                    hasSelectedDir = hasSelectedDir.value,
+                )
+            },
+            TabItem(
+                icon = Icons.Default.AccountCircle,
+                title = "Contacts",
+            ) { modifier ->
+                Text("hiii!!!!", modifier = modifier)
+            },
         )
 
         this.setContent {
@@ -192,10 +202,14 @@ class MainActivity : ComponentActivity() {
                     ) }
                 ) { paddingValues ->
                     Column(modifier = Modifier.padding(paddingValues)) {
-                        TabBar(selectedTab = selectedTab, containerColor = topBarContainerColor)
+                        TabBar(
+                            selectedTab = selectedTab,
+                            tabs = tabItems.map { item -> item.toTabBarItem() },
+                            containerColor = topBarContainerColor,
+                        )
 
                         // TODO: add anchoredDraggable modifier
-                        tabScreens[selectedTab.intValue](Modifier)
+                        tabItems[selectedTab.intValue].content(Modifier)
                     }
                 }
                 this.calendarQueryManager.RationaleDialog()
@@ -212,40 +226,53 @@ class MainActivity : ComponentActivity() {
      */
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
-    fun Greeting(modifier: Modifier = Modifier, hasSelectedDir: Boolean = false, groupedCalendars: Map<String, List<UserCalendarListItem>>?) {
-        Column(
-            modifier.padding(MIDDLE_PADDING.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+    fun Calendars(
+        modifier: Modifier = Modifier,
+        hasSelectedDir: Boolean = false,
+        groupedCalendars: Map<String, List<UserCalendarListItem>>?
+    ) {
+        Column(modifier.padding(OUTER_PADDING.dp)) {
             if (!hasSelectedDir) {
-                Text("Please select a directory where to sync Calendars and Contacts.")
-                IconTextButton(
-                    icon = painterResource(R.drawable.round_folder_24),
-                    text = "Select",
-                    onclick = {
-                        // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
-                        dirSelectIntent.launch(null)
-                    }
-                )
-                Divider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 4).dp))
+                Column(
+                    modifier = Modifier.padding(OUTER_PADDING.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("Please select a directory where to sync Calendars and Contacts.")
+                    IconTextButton(
+                        icon = painterResource(R.drawable.round_folder_24),
+                        text = "Select",
+                        onclick = {
+                            // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
+                            dirSelectIntent.launch(null)
+                        }
+                    )
+                }
+                Divider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 2).dp))
             }
 
             if (groupedCalendars == null) {
-                Text("Please allow ${stringResource(R.string.app_name)} to read and write yo your device's calendar")
-                IconTextButton(
-                    icon = painterResource(R.drawable.outline_sync_24),
-                    text = "Sync",
-                    onclick = { calendarQueryManager.runAction() }
-                )
+                Column(
+                    modifier = Modifier.padding(OUTER_PADDING.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("Please allow ${stringResource(R.string.app_name)} to read and write yo your device's calendar")
+                    IconTextButton(
+                        icon = painterResource(R.drawable.outline_sync_24),
+                        text = "Sync",
+                        onclick = { calendarQueryManager.runAction() }
+                    )
+                }
             } else {
                 Surface(
+                    modifier = Modifier
+                        .fillMaxWidth(),
                     shape = MaterialTheme.shapes.small,
                     tonalElevation = 1.dp,
                     shadowElevation = 5.dp
                 ) {
                     LazyColumn(
                         Modifier
-                            .padding(4.dp)
+                            .padding(MIDDLE_PADDING.dp)
                             .clip(MaterialTheme.shapes.small),
                         verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp)
                     ) {
@@ -263,7 +290,7 @@ class MainActivity : ComponentActivity() {
                                             .padding(2.dp)
                                             .padding(start = 4.dp),
                                         fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.secondary,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
                                         style = MaterialTheme.typography.titleSmall
                                     )
                                 }
@@ -310,11 +337,8 @@ class MainActivity : ComponentActivity() {
         modifier: Modifier = Modifier,
         containerColor: ComposeColor =  MaterialTheme.colorScheme.primaryContainer,
         selectedTab: MutableIntState = mutableIntStateOf(0),
+        tabs: List<Pair<ImageVector, String>>
     ) {
-        val tabs = arrayOf(
-            Pair(Icons.Default.DateRange, "Calendars"),
-            Pair(Icons.Default.AccountCircle, "Contacts")
-        )
         val iconSize = 24.dp
         val density = LocalDensity.current
         // The width of the indicator will change depending on the content of the selected tab.
@@ -439,13 +463,13 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    @Preview(showBackground = true)
+    @Preview(showBackground = true, widthDp = 300)
     @Composable
-    fun GreetingPreview() {
+    fun CalendarsPreview() {
         val acc = "me@mydomain.me"
 
         CalProvExampleTheme {
-            this.Greeting(
+            this.Calendars(
                 hasSelectedDir = true,
                 groupedCalendars = arrayOf(
                     UserCalendarListItem(
@@ -475,18 +499,24 @@ class MainActivity : ComponentActivity() {
             Column {
                 val containerColor = MaterialTheme.colorScheme.primaryContainer
                 TopBar(title = { Text("Title") }, containerColor = containerColor)
-                TabBar(containerColor = containerColor)
+                TabBar(
+                    containerColor = containerColor,
+                    tabs = listOf(
+                        Pair(Icons.Default.DateRange, "Calendars"),
+                        Pair(Icons.Default.AccountCircle, "Contacts")
+                    )
+                )
             }
         }
     }
-    @Preview(showBackground = true)
+    @Preview(showBackground = true, widthDp = 300)
     @Composable
     fun GreetingNoPermPreview() {
         CalProvExampleTheme {
-            this.Greeting(groupedCalendars = null)
+            this.Calendars(groupedCalendars = null)
         }
     }
-    @Preview
+    @Preview(widthDp = 300)
     @Composable
     fun CalendarPermissionRationaleDialogPreview() {
         CalProvExampleTheme {
@@ -501,5 +531,19 @@ fun IconTextButton(modifier: Modifier = Modifier, icon: Painter, text: String, o
     Button(onclick, modifier, contentPadding = PaddingValues(start = 16.dp, end = 24.dp)) {
         Icon(icon, null, modifier = Modifier.size(18.dp))
         Text(text, modifier.padding(start = 8.dp))
+    }
+}
+
+/** Information about a tab in a TabBar or NavBar.
+ * @param content The content composable is passed a modifier. */
+data class TabItem(
+    val icon: ImageVector,
+    val title: String,
+    val content: @Composable (Modifier) -> Unit,
+) {
+    /** Convert the item to one that can be used by a real TabBar.
+     * @return the item's icon and title. */
+    fun toTabBarItem(): Pair<ImageVector, String> {
+        return Pair(this.icon, this.title)
     }
 }
