@@ -89,6 +89,7 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 private const val OUTER_PADDING = 8
 private const val MIDDLE_PADDING = 4
 private const val LIST_ITEM_SPACING = 4
+private const val PREVIEW_WIDTH = 300
 
 class MainActivity : ComponentActivity() {
     // The path/URI where the synced .ics files are stored in shared storage.
@@ -463,7 +464,7 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    @Preview(showBackground = true, widthDp = 300)
+    @Preview(showBackground = true, widthDp = PREVIEW_WIDTH)
     @Composable
     fun CalendarsPreview() {
         val acc = "me@mydomain.me"
@@ -492,7 +493,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     @OptIn(ExperimentalMaterial3Api::class)
-    @Preview(showBackground = true)
+    @Preview(showBackground = true, widthDp = PREVIEW_WIDTH)
     @Composable
     fun TopBarPreview() {
         CalProvExampleTheme {
@@ -509,14 +510,14 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    @Preview(showBackground = true, widthDp = 300)
+    @Preview(showBackground = true, widthDp = PREVIEW_WIDTH)
     @Composable
     fun GreetingNoPermPreview() {
         CalProvExampleTheme {
             this.Calendars(groupedCalendars = null)
         }
     }
-    @Preview(widthDp = 300)
+    @Preview(widthDp = PREVIEW_WIDTH)
     @Composable
     fun CalendarPermissionRationaleDialogPreview() {
         CalProvExampleTheme {
