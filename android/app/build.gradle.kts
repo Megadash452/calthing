@@ -63,6 +63,12 @@ dependencies {
     // Android Studio Previews
     implementation("androidx.compose.ui:ui-tooling-preview:1.6.0")
     implementation("androidx.compose.ui:ui-tooling-preview-android:1.6.0")
+    // Navigation for Jetpack Compose
+    implementation("androidx.navigation:navigation-compose:2.7.6")
+    implementation("androidx.navigation:navigation-fragment-ktx:2.7.6")
+    implementation("androidx.navigation:navigation-ui-ktx:2.7.6")
+    implementation("androidx.navigation:navigation-dynamic-features-fragment:2.7.6")
+    androidTestImplementation("androidx.navigation:navigation-testing:2.7.6")
 
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
