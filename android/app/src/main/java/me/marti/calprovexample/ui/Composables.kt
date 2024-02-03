@@ -49,6 +49,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -78,9 +79,6 @@ private const val MIDDLE_PADDING = 4
 private const val LIST_ITEM_SPACING = 4
 private const val PREVIEW_WIDTH = 300
 
-enum class CalendarStatus {
-
-}
 
 /** The `Main` content of the app.
  * Contains the scaffolding with the `TopBar` and the `Calendars` and `Contacts` components. */
@@ -95,8 +93,10 @@ fun MainContent(
     calPermsClick: () -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val tabController = remember {
-        TabNavController(tabs = listOf(
+    @Suppress("NAME_SHADOWING")
+    val tabController = TabNavController(
+        selectedIdx = rememberSaveable { mutableIntStateOf(0) },
+        tabs = listOf(
             TabNavDestination(
                 icon = Icons.Default.DateRange,
                 title = "Calendars",
@@ -112,9 +112,9 @@ fun MainContent(
             TabNavDestination(
                 icon = Icons.Default.AccountCircle,
                 title = "Contacts",
-            ) { modifier -> Text("hiii!!!!", modifier = modifier) },
-        ))
-    }
+            ) { modifier -> Text("Contacts section", modifier = modifier) },
+        )
+    )
 
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),

@@ -26,16 +26,13 @@ import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 
 class MainActivity : ComponentActivity() {
-    // The path/URI where the synced .ics files are stored in shared storage.
-    private var filesUri: Uri? = null
-
     // -- Hoisted States for compose
-    // Calendars are grouped by Account Name.
-    // Null if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device).
+    /** The path/URI where the synced .ics files are stored in shared storage.
+      * Null if the user hasn't selected a directory. */
+    private var filesUri: MutableState<Uri?> = mutableStateOf(null)
+    /** Calendars are grouped by Account Name.
+      * Null if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
     private var userCalendars: MutableState<Map<String, List<UserCalendarListItem>>?> = mutableStateOf(null)
-    // Tells if the user has selected a directory in shared storage where to sync.
-    // TODO: should move to a "single source of truth", but can't use mutable state.
-    private var hasSelectedDir: MutableState<Boolean> = mutableStateOf(false)
 
     // TODO: better name
     private val calendarQueryManager = CalendarPermission(this) {
@@ -54,8 +51,7 @@ class MainActivity : ComponentActivity() {
             println("User cancelled the file picker.")
         } else {
             println("User selected $uri for synced .ics files.")
-            this.filesUri = uri
-            this.hasSelectedDir.value = true
+            this.filesUri.value = uri
             // Preserve access to the directory. Otherwise, access would be revoked when app is closed.
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
 
@@ -93,7 +89,7 @@ class MainActivity : ComponentActivity() {
                         MainContent(
                             settingsClick = { navController.navigate(NavDestinationItem.Settings.route) },
                             groupedCalendars = userCalendars.value,
-                            hasSelectedDir = hasSelectedDir.value,
+                            hasSelectedDir = filesUri.value != null,
                             selectDirClick = {
                                 // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
                                 dirSelectIntent.launch(null)
