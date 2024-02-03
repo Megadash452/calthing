@@ -116,45 +116,47 @@ class CalendarPermission(
     }
 
     @Composable
-    fun RationaleDialog(show: Boolean = false) {
-        // I don't know the overhead of "subscribing" to a value, so don't set the value if not necessary.
-        if (show)
-            this.dialogController.value = true
-
-        val onDismiss: () -> Unit = {
-            this.dialogController.value = false
-            Log.d(null, "Calendar Permission Rationale Dialog dismissed")
-        }
-
+    fun RationaleDialog() {
         // The if statement "subscribes" to the value, and this code is run every time the value changes.
         if (this.dialogController.value) {
-            AlertDialog(
-                icon = {
-                    Icon(
-                        painterResource(R.drawable.baseline_edit_calendar_24),
-                        null,
-                        modifier = Modifier.size(36.dp),
-                    )
+            CalendarRationaleDialog(
+                onConfirm = {
+                    this.dialogController.value = false
+                    this.requestPermissions()
                 },
-                title = { Text(stringResource(R.string.cal_perm_rationale_title)) },
-                text = { Text(stringResource(R.string.cal_perm_rationale_body, stringResource(R.string.app_name))) },
-                onDismissRequest = onDismiss,
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            this.dialogController.value = false
-                            this.requestPermissions()
-                        },
-                        content = { Text(stringResource(R.string.cal_perm_rationale_confirm)) }
-                    )
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = onDismiss,
-                        content = { Text(stringResource(R.string.cal_perm_rationale_dismiss)) }
-                    )
+                onDismiss = {
+                    this.dialogController.value = false
+                    Log.d(null, "Calendar Permission Rationale Dialog dismissed")
                 }
             )
         }
     }
+}
+
+@Composable
+fun CalendarRationaleDialog(onConfirm: () -> Unit = {}, onDismiss: () -> Unit = {}) {
+    AlertDialog(
+        icon = {
+            Icon(
+                painterResource(R.drawable.baseline_edit_calendar_24),
+                null,
+                modifier = Modifier.size(36.dp),
+            )
+        },
+        title = { Text(stringResource(R.string.cal_perm_rationale_title)) },
+        text = { Text(stringResource(R.string.cal_perm_rationale_body, stringResource(R.string.app_name))) },
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                content = { Text(stringResource(R.string.cal_perm_rationale_confirm)) }
+            )
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                content = { Text(stringResource(R.string.cal_perm_rationale_dismiss)) }
+            )
+        }
+    )
 }
