@@ -1,7 +1,7 @@
 package me.marti.calprovexample.ui
 
+import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -17,11 +17,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import me.marti.calprovexample.UserCalendarListItem
+import me.marti.calprovexample.UserStringPreference
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 
@@ -29,7 +31,7 @@ class MainActivity : ComponentActivity() {
     // -- Hoisted States for compose
     /** The path/URI where the synced .ics files are stored in shared storage.
       * Null if the user hasn't selected a directory. */
-    private var filesUri: MutableState<Uri?> = mutableStateOf(null)
+    private val filesUri = UserStringPreference("files_uri") { s -> s.toUri() }
     /** Calendars are grouped by Account Name.
       * Null if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
     private var userCalendars: MutableState<Map<String, List<UserCalendarListItem>>?> = mutableStateOf(null)
@@ -73,6 +75,8 @@ class MainActivity : ComponentActivity() {
         // Must set navigationBarStyle to remove the scrim.
         enableEdgeToEdge(navigationBarStyle = SystemBarStyle.light(0, 0))
         super.onCreate(savedInstanceState)
+        val preferences = this.getPreferences(Context.MODE_PRIVATE)
+        this.filesUri.initStore(preferences)
 
         Log.d(null, "Initializing Main Activity")
 
