@@ -12,22 +12,24 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.NavController
-import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.UserStringPreference
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
@@ -90,32 +92,6 @@ class MainActivity : ComponentActivity() {
         if (calendarQueryManager.hasPermission())
             calendarQueryManager.runAction()
 
-        // /** A list of screens that are rendered as the main content (depending on the selected tab) of the app. */
-        // val tabItems: Array<TabItem> = arrayOf(
-        //     TabItem(
-        //         icon = { Icon(Icons.Default.DateRange, null) },
-        //         title = "Calendars",
-        //     ) { modifier ->
-        //         Calendars(
-        //             modifier = modifier,
-        //             groupedCalendars = userCalendars.value,
-        //             hasSelectedDir = hasSelectedDir.value,
-        //         )
-        //     },
-        //     TabItem(
-        //         icon = { Icon(Icons.Default.AccountCircle, null) },
-        //         title = "Contacts",
-        //     ) { modifier ->
-        //         Text("hiii!!!!", modifier = modifier)
-        //     },
-        //     TabItem(
-        //         icon = { Icon(Icons.Default.Settings, null) },
-        //         title = "Settings",
-        //     ) { modifier ->
-        //         Text("Settings page", modifier = modifier)
-        //     },
-        // )
-
         this.setContent {
             CalProvExampleTheme {
                 val navController = rememberNavController()
@@ -124,14 +100,32 @@ class MainActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets.systemBars,
                     bottomBar = {
                         NavBar(
-                            items = tabItems.map { item -> item.toTabBarItem() },
+                            items = NavDestinationItem.All,
                             controller = navController
                         )
                     }
                 ) { paddingValues ->
-                    NavHost(navController, startDestination = "calendars", modifier = Modifier.padding(paddingValues)) {
-                        this.composable("calendars") {
-
+                    NavHost(
+                        navController,
+                        startDestination = NavDestinationItem.All[0].route,
+                        modifier = Modifier.padding(paddingValues)
+                    ) {
+                        this.composable(NavDestinationItem.Calendars.route) {
+                            Calendars(
+                                groupedCalendars = this@MainActivity.userCalendars.value,
+                                hasSelectedDir = this@MainActivity.filesUri.value != null,
+                                selectDirClick = {
+                                    // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
+                                    dirSelectIntent.launch(null)
+                                },
+                                calPermsClick = { this@MainActivity.calendarQueryManager.runAction() }
+                            )
+                        }
+                        this.composable(NavDestinationItem.Contacts.route) {
+                            Text("Contacts Page")
+                        }
+                        this.composable(NavDestinationItem.Settings.route) {
+                            Text("Settings Page")
                         }
                     }
                 }
@@ -144,17 +138,24 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun NavBar(
     modifier: Modifier = Modifier,
-    items: List<Pair<@Composable () -> Unit, String>>,
-    controller: NavController
+    items: List<NavDestinationItem> = NavDestinationItem.All,
+    controller: NavController? = null
 ) {
+    val backStack by controller?.currentBackStackEntryAsState() ?: remember { mutableStateOf(null) }
+
     NavigationBar(modifier) {
-        items.forEachIndexed { index, item ->
+        items.forEachIndexed { i, item ->
             NavigationBarItem(
-                icon = item.first,
-                label = { Text(item.second) },
-                selected = selectedItem.intValue == index,
+                icon = { Icon(item.icon, null) },
+                label = { Text(item.title) },
+                // When there is no controller the first item is always selected
+                selected = if (backStack != null) backStack!!.destination.route == item.route else i == 0,
                 onClick = {
-                    controller.navigate("next") { this.launchSingleTop = true }
+                    controller?.navigate(item.route) {
+                        this.popUpTo(controller.graph.startDestinationId)
+                        this.restoreState = true
+                        this.launchSingleTop = true
+                    }
                 },
             )
         }
