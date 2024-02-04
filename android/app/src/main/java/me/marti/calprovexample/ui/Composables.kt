@@ -76,6 +76,8 @@ import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
 private const val OUTER_PADDING = 8
 private const val MIDDLE_PADDING = 4
+private const val LIST_ELEVATION = 1
+private const val LIST_ITEM_ELEVATION = 3
 private const val LIST_ITEM_SPACING = 4
 private const val PREVIEW_WIDTH = 300
 
@@ -89,7 +91,7 @@ fun MainContent(
     settingsClick: () -> Unit = {},
     hasSelectedDir: Boolean = false,
     selectDirClick: () -> Unit = {},
-    groupedCalendars: Map<String, List<UserCalendarListItem>>?,
+    groupedCalendars: GroupedList<String, UserCalendarListItem>?,
     calPermsClick: () -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -322,7 +324,7 @@ private fun Calendars(
     modifier: Modifier = Modifier,
     hasSelectedDir: Boolean = false,
     selectDirClick: () -> Unit = {},
-    groupedCalendars: Map<String, List<UserCalendarListItem>>?,
+    groupedCalendars: GroupedList<String, UserCalendarListItem>?,
     calPermsClick: () -> Unit = {},
 ) {
     Column(modifier.padding(OUTER_PADDING.dp)) {
@@ -358,7 +360,7 @@ private fun Calendars(
                 modifier = Modifier
                     .fillMaxWidth(),
                 shape = MaterialTheme.shapes.small,
-                tonalElevation = 1.dp,
+                tonalElevation = LIST_ELEVATION.dp,
                 shadowElevation = 5.dp
             ) {
                 LazyColumn(
@@ -403,7 +405,7 @@ private fun CalendarListItem(cal: UserCalendarListItem) {
         modifier = Modifier
             .clip(MaterialTheme.shapes.small)
             .fillMaxWidth(),
-        tonalElevation = 3.dp,
+        tonalElevation = LIST_ITEM_ELEVATION.dp,
         headlineContent = { Text(cal.name) },
         supportingContent = {
             // Don't show any status if the user has not selected this calendar for syncing

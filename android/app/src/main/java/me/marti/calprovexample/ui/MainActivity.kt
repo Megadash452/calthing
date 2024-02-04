@@ -27,19 +27,21 @@ import me.marti.calprovexample.UserStringPreference
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 
+/** A **`List<T>`** grouped by values **`G`**, which are members of **`T`**. */
+typealias GroupedList<G, T> = Map<G, List<T>>
+
 class MainActivity : ComponentActivity() {
     // -- Hoisted States for compose
     /** The path/URI where the synced .ics files are stored in shared storage.
       * Null if the user hasn't selected a directory. */
     private val filesUri = UserStringPreference("files_uri") { s -> s.toUri() }
     /** Calendars are grouped by Account Name.
-      * Null if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
-    private var userCalendars: MutableState<Map<String, List<UserCalendarListItem>>?> = mutableStateOf(null)
+      * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
+    private var userCalendars: MutableState<GroupedList<String, UserCalendarListItem>?> = mutableStateOf(null)
 
-    // TODO: better name
-    private val calendarQueryManager = CalendarPermission(this) {
+    private val calendarQuery = WithCalendarPermission(this) {
         val cals = userCalendars(this.baseContext)
-        // queryCalendar(this.baseContext)
+        // me.marti.calprovexample.queryCalendar(this.baseContext)
         if (cals == null) {
             println("Couldn't get user calendars")
         } else {
@@ -81,8 +83,8 @@ class MainActivity : ComponentActivity() {
         Log.d(null, "Initializing Main Activity")
 
         // Populate the list of synced calendars, but only if the user had allowed it before.
-        if (calendarQueryManager.hasPermission())
-            calendarQueryManager.runAction()
+        if (calendarQuery.hasPermission())
+            calendarQuery.runAction()
 
         this.setContent {
             CalProvExampleTheme {
@@ -98,7 +100,7 @@ class MainActivity : ComponentActivity() {
                                 // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
                                 dirSelectIntent.launch(null)
                             },
-                            calPermsClick =  { calendarQueryManager.runAction() }
+                            calPermsClick =  { calendarQuery.runAction() }
                         )
                     }
                     this.composable(NavDestinationItem.Settings.route) {
@@ -106,16 +108,14 @@ class MainActivity : ComponentActivity() {
                             contentWindowInsets = WindowInsets.systemBars,
                             topBar = { SimpleTopBar(
                                 title = NavDestinationItem.Settings.title,
-                                navUpClick = {
-
-                                }
+                                navUpClick = { navController.navigateUp() }
                             ) }
                         ) { paddingValues ->
                             Text("Settings Page", modifier = Modifier.padding(paddingValues))
                         }
                     }
                 }
-                this.calendarQueryManager.RationaleDialog()
+                this.calendarQuery.RationaleDialog()
             }
         }
     }
