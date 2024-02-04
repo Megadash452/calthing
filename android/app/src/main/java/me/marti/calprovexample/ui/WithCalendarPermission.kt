@@ -53,8 +53,7 @@ private const val WRITE_CALENDAR_PERMISSION = "android.permission.WRITE_CALENDAR
  * @param activity the activity the action will be run on.
  * @param action the action that will be run if the activity has the required permissions.
  */
-// TODO: find better name for this class
-class CalendarPermission(
+class WithCalendarPermission(
     private val activity: ComponentActivity,
     private val action: () -> Unit
 ) {
