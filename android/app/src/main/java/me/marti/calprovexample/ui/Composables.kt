@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import me.marti.calprovexample.R
 import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
@@ -226,6 +228,16 @@ fun CalendarsPreview() {
 fun NavBarPreview() {
     CalProvExampleTheme {
         NavBar(items = NavDestinationItem.All)
+    }
+}
+@Preview(showBackground = true, widthDp = PREVIEW_WIDTH)
+@Composable
+fun SettingsPreview() {
+    CalProvExampleTheme {
+        Settings(settings = listOf(
+            { BooleanSetting(name = "example") },
+            { DirSetting(name = "Syncing Directory", value = "/home/me/Syncthing".toUri()) }
+        ))
     }
 }
 @Preview(showBackground = true, widthDp = PREVIEW_WIDTH)
