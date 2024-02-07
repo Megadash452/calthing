@@ -10,14 +10,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,13 +24,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
-import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.StringLikeUserPreference
+import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 
@@ -115,6 +111,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         this.composable(NavDestinationItem.Calendars.route) {
                             Calendars(
+                                modifier = Modifier.fillMaxSize(),
                                 groupedCalendars = this@MainActivity.userCalendars.value,
                                 hasSelectedDir = this@MainActivity.syncDir.value != null,
                                 selectDirClick = { this@MainActivity.selectSyncDir() },
@@ -122,10 +119,12 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         this.composable(NavDestinationItem.Contacts.route) {
-                            Text("Contacts Page")
+                            Text("Contacts Page", modifier = Modifier.fillMaxSize())
                         }
                         this.composable(NavDestinationItem.Settings.route) {
-                            Settings(settings = listOf(
+                            Settings(
+                                modifier = Modifier.fillMaxSize(),
+                                settings = listOf(
                                 {
                                     var value by remember { mutableStateOf(false) }
                                     BooleanSetting(name = "example", value = value, onClick = { checked -> value = checked })
@@ -149,32 +148,5 @@ class MainActivity : ComponentActivity() {
     private fun selectSyncDir() {
         // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
         dirSelectIntent.launch(null)
-    }
-}
-
-@Composable
-fun NavBar(
-    modifier: Modifier = Modifier,
-    items: List<NavDestinationItem> = NavDestinationItem.All,
-    controller: NavController? = null
-) {
-    val backStack by controller?.currentBackStackEntryAsState() ?: remember { mutableStateOf(null) }
-
-    NavigationBar(modifier) {
-        items.forEachIndexed { i, item ->
-            NavigationBarItem(
-                icon = { Icon(item.icon, null) },
-                label = { Text(item.title) },
-                // When there is no controller the first item is always selected
-                selected = if (backStack != null) backStack!!.destination.route == item.route else i == 0,
-                onClick = {
-                    controller?.navigate(item.route) {
-                        this.popUpTo(controller.graph.startDestinationId)
-                        this.restoreState = true
-                        this.launchSingleTop = true
-                    }
-                },
-            )
-        }
     }
 }

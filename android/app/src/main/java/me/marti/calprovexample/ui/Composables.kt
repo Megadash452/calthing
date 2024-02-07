@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,7 +40,7 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
-private const val OUTER_PADDING = 8
+const val OUTER_PADDING = 8
 private const val MIDDLE_PADDING = 4
 private const val LIST_ELEVATION = 1
 private const val LIST_ITEM_ELEVATION = 3
@@ -66,12 +65,7 @@ fun Calendars(
     calPermsClick: () -> Unit = {},
 ) {
     Column(modifier.padding(OUTER_PADDING.dp)) {
-        Text(
-            "Calendars",
-            modifier = Modifier.padding(bottom = OUTER_PADDING.dp),
-            fontWeight = FontWeight.Medium,
-            style = MaterialTheme.typography.titleLarge
-        )
+        Header("Calendars")
 
         if (!hasSelectedDir) {
             Column(
@@ -192,6 +186,16 @@ fun IconTextButton(modifier: Modifier = Modifier, icon: Painter, text: String, o
         Icon(icon, null, modifier = Modifier.size(18.dp))
         Text(text, modifier.padding(start = 8.dp))
     }
+}
+
+@Composable
+fun Header(title: String, modifier: Modifier = Modifier) {
+    Text(
+        title,
+        modifier = modifier.padding(bottom = OUTER_PADDING.dp),
+        fontWeight = FontWeight.Medium,
+        style = MaterialTheme.typography.titleLarge
+    )
 }
 
 

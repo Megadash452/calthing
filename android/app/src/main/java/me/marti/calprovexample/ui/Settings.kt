@@ -2,6 +2,7 @@ package me.marti.calprovexample.ui
 
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,9 +22,12 @@ import me.marti.calprovexample.R
 
 @Composable
 fun Settings(modifier: Modifier = Modifier, settings: List<@Composable () -> Unit>) {
-    LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        this.items(settings) { setting ->
-            setting()
+    Column(modifier = modifier.padding(OUTER_PADDING.dp)) {
+        Header("Settings")
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            this.items(settings) { setting ->
+                setting()
+            }
         }
     }
 }
