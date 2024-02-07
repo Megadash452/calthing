@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import me.marti.calprovexample.R
 import androidx.compose.ui.graphics.Color as ComposeColor
 import me.marti.calprovexample.UserCalendarListItem
@@ -80,6 +81,12 @@ private const val LIST_ELEVATION = 1
 private const val LIST_ITEM_ELEVATION = 3
 private const val LIST_ITEM_SPACING = 4
 private const val PREVIEW_WIDTH = 300
+
+private val TOP_BAR_COLOR = ComposeColor(0)
+private val TOP_BAR_SCROLLER_COLOR
+    @Composable get() = MaterialTheme.colorScheme.primaryContainer
+private val TOP_BAR_CONTENT_COLOR
+    @Composable get() = MaterialTheme.colorScheme.primary
 
 
 /** The `Main` content of the app.
@@ -142,9 +149,10 @@ fun MainContent(
  * @param navUpClick The action run when the button to *navigate up* the NavBackStack is clicked. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SimpleTopBar(modifier: Modifier = Modifier, title: String, navUpClick: () -> Unit = {}) {
+fun SimpleTopBar(modifier: Modifier = Modifier, title: String, scrollBehavior: TopAppBarScrollBehavior? = null, navUpClick: () -> Unit = {}) {
     TopAppBar(
         modifier = modifier,
+        scrollBehavior = scrollBehavior,
         title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = {
             IconButton(onClick = navUpClick) {
@@ -168,9 +176,6 @@ private fun TopBar(
     settingsClick: () -> Unit = {},
     tabController: TabNavController
 ) {
-    val containerColor = MaterialTheme.colorScheme.primaryContainer
-    val contentColor = MaterialTheme.colorScheme.primary
-
     /* FIXME: the content colors of the TopBar and TabBar are only in sync when using MediumTopAppBar.
      * At that point just put the TabBar inside the TopBar (but that doesn't look good either) */
     // Hoist up the animation state from inside the TopAppBar to control both the TopBar and TabBar.
@@ -184,8 +189,8 @@ private fun TopBar(
     } else {
         scrollBehavior.state.overlappedFraction <= 0.01f
     }
-    val topBarContainerColor by animateColorAsState(
-        targetValue = if (isScrolled) ComposeColor(0) else containerColor,
+    val containerColor by animateColorAsState(
+        targetValue = if (isScrolled) TOP_BAR_COLOR else TOP_BAR_SCROLLER_COLOR,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "topAppBarContainerColorAnimation"
     )
@@ -193,13 +198,13 @@ private fun TopBar(
     Column(modifier = modifier) {
         MediumTopAppBar(
             scrollBehavior = scrollBehavior,
-            title = { title() },
+            title = title,
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = topBarContainerColor,
-                scrolledContainerColor = topBarContainerColor,
-                titleContentColor = contentColor,
-                navigationIconContentColor = contentColor,
-                actionIconContentColor = contentColor,
+                containerColor = containerColor,
+                scrolledContainerColor = containerColor,
+                titleContentColor = TOP_BAR_CONTENT_COLOR,
+                navigationIconContentColor = TOP_BAR_CONTENT_COLOR,
+                actionIconContentColor = TOP_BAR_CONTENT_COLOR,
             ),
             actions = {
                 IconButton(onClick = settingsClick) {
@@ -209,7 +214,7 @@ private fun TopBar(
         )
 
         TabBar(
-            containerColor = topBarContainerColor,
+            containerColor = containerColor,
             controller = tabController
         )
     }
@@ -260,16 +265,16 @@ private fun TabBar(
         }
     ) {
         controller.tabs.forEachIndexed { i, tab ->
-            // Tab(
+            // androidx.compose.material3.Tab(
             //     icon = { Icon(tab.icon, null) },
             //     text = {
             //         Text(
             //             tab.title,
-            //             modifier = if (controller.selectedTab.intValue == i) {
+            //             modifier = if (controller.selectedIdx.intValue == i) {
             //                 Modifier.onGloballyPositioned {
             //                     indicatorWidth.value = with(density) {
             //                         // The width of the indicator is the of the text or the icon, whichever is greater.
-            //                         max(it.size.width.toDp(), iconSize)
+            //                         androidx.compose.ui.unit.max(it.size.width.toDp(), iconSize)
             //                     }
             //                 }
             //             } else { Modifier },
@@ -277,10 +282,10 @@ private fun TabBar(
             //             letterSpacing = 0.5.sp
             //         )
             //     },
-            //     selectedContentColor = MaterialTheme.colorScheme.primary,
+            //     selectedContentColor = TOP_BAR_CONTENT_COLOR,
             //     unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            //     selected = controller.selectedTab.intValue == i,
-            //     onClick = { controller.selectedTab.intValue = i }
+            //     selected = controller.selectedIdx.intValue == i,
+            //     onClick = { controller.selectedIdx.intValue = i }
             // )
 
             // Use the regular Tab when there is more than 2 tabs.
@@ -301,7 +306,7 @@ private fun TabBar(
                         letterSpacing = 0.5.sp
                     )
                 },
-                selectedContentColor = MaterialTheme.colorScheme.primary,
+                selectedContentColor = TOP_BAR_CONTENT_COLOR,
                 unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 selected = controller.selectedIdx.intValue == i,
                 onClick = { controller.selectedIdx.intValue = i }
@@ -440,6 +445,30 @@ private fun CalendarListItem(cal: UserCalendarListItem) {
 }
 
 
+/** The top-level composable for the settings page.
+ * Contains the scaffolding and the TopBar. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsContent(
+    modifier: Modifier = Modifier,
+    navUpClick: () -> Unit = {},
+    settings: List<@Composable () -> Unit>,
+) {
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+    Scaffold(
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        contentWindowInsets = WindowInsets.systemBars,
+        topBar = { SimpleTopBar(
+            title = NavDestinationItem.Settings.title,
+            navUpClick = navUpClick
+        ) }
+    ) { paddingValues ->
+        Settings(modifier = Modifier.padding(paddingValues), settings)
+    }
+}
+
+
 /** A Button that has an icon and text*/
 @Composable
 fun IconTextButton(modifier: Modifier = Modifier, icon: Painter, text: String, onclick: () -> Unit) {
@@ -492,6 +521,16 @@ fun TopBarPreview() {
                 ))
             )
         }
+    }
+}
+@Preview(showBackground = true, widthDp = PREVIEW_WIDTH)
+@Composable
+fun SettingsPreview() {
+    CalProvExampleTheme {
+        Settings(settings = listOf(
+            { BooleanSetting(name = "example") },
+            { DirSetting(name = "Syncing Directory", value = "/home/me/Syncthing".toUri()) }
+        ))
     }
 }
 @Preview(showBackground = true, widthDp = PREVIEW_WIDTH)
