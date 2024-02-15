@@ -53,7 +53,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,9 +70,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import me.marti.calprovexample.R
-import androidx.compose.ui.graphics.Color as ComposeColor
 import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
+import androidx.compose.ui.graphics.Color as ComposeColor
 
 private const val OUTER_PADDING = 8
 private const val MIDDLE_PADDING = 4
@@ -100,6 +99,8 @@ fun MainContent(
     selectDirClick: () -> Unit = {},
     groupedCalendars: GroupedList<String, UserCalendarListItem>?,
     calPermsClick: () -> Unit = {},
+    calIsSynced: (Int) -> Boolean,
+    onCalSwitchClick: (Int, Boolean) -> Unit
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     @Suppress("NAME_SHADOWING")
@@ -115,7 +116,9 @@ fun MainContent(
                     groupedCalendars = groupedCalendars,
                     hasSelectedDir = hasSelectedDir,
                     selectDirClick = selectDirClick,
-                    calPermsClick =  calPermsClick
+                    calPermsClick =  calPermsClick,
+                    calIsSynced = calIsSynced,
+                    onCalSwitchClick = onCalSwitchClick
                 )
             },
             TabNavDestination(
@@ -331,6 +334,8 @@ private fun Calendars(
     selectDirClick: () -> Unit = {},
     groupedCalendars: GroupedList<String, UserCalendarListItem>?,
     calPermsClick: () -> Unit = {},
+    calIsSynced: (Int) -> Boolean = { false },
+    onCalSwitchClick: (Int, Boolean) -> Unit = { _, _ -> }
 ) {
     Column(modifier.padding(OUTER_PADDING.dp)) {
         if (!hasSelectedDir) {
@@ -393,7 +398,13 @@ private fun Calendars(
                                 )
                             }
                         }
-                        this.items(calGroup) { cal -> CalendarListItem(cal) }
+                        this.items(calGroup, key = { cal -> cal.id }) { cal ->
+                            CalendarListItem(
+                                cal = cal,
+                                isSynced = calIsSynced(cal.id),
+                                onSwitchClick = { checked -> onCalSwitchClick(cal.id, checked) }
+                            )
+                        }
                     }
                 }
             }
@@ -403,9 +414,7 @@ private fun Calendars(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CalendarListItem(cal: UserCalendarListItem) {
-    var isChecked by rememberSaveable { mutableStateOf(false) }
-
+private fun CalendarListItem(cal: UserCalendarListItem, isSynced: Boolean = false, onSwitchClick: (Boolean) -> Unit = {}) {
     ListItem(
         modifier = Modifier
             .clip(MaterialTheme.shapes.small)
@@ -414,7 +423,7 @@ private fun CalendarListItem(cal: UserCalendarListItem) {
         headlineContent = { Text(cal.name) },
         supportingContent = {
             // Don't show any status if the user has not selected this calendar for syncing
-            if (isChecked) {
+            if (isSynced) {
                 Text(
                     "Status...",
                     fontWeight = FontWeight.Light,
@@ -437,8 +446,8 @@ private fun CalendarListItem(cal: UserCalendarListItem) {
         },
         trailingContent = {
             Switch(
-                checked = isChecked,
-                onCheckedChange = { checked -> isChecked = checked }
+                checked = isSynced,
+                onCheckedChange = onSwitchClick
             )
         },
     )
@@ -489,16 +498,19 @@ fun CalendarsPreview() {
             hasSelectedDir = true,
             groupedCalendars = arrayOf(
                 UserCalendarListItem(
+                    id = 0,
                     name = "Personal",
                     accountName = acc,
                     color = me.marti.calprovexample.Color("cd58bb")
                 ),
                 UserCalendarListItem(
+                    id = 1,
                     name = "Friend",
                     accountName = "Friend",
                     color = me.marti.calprovexample.Color("58cdc9")
                 ),
                 UserCalendarListItem(
+                    id = 2,
                     name = "Work",
                     accountName = acc,
                     color = me.marti.calprovexample.Color("5080c8")
@@ -528,8 +540,8 @@ fun TopBarPreview() {
 fun SettingsPreview() {
     CalProvExampleTheme {
         Settings(settings = listOf(
-            { BooleanSetting(name = "example") },
-            { DirSetting(name = "Syncing Directory", value = "/home/me/Syncthing".toUri()) }
+            { BooleanSetting(name = "example", summary = "Example boolean setting with summary") },
+            { DirSetting(name = "Syncing Directory", value = "content://com.android.calendar/primary%3ASyncthing".toUri()) }
         ))
     }
 }

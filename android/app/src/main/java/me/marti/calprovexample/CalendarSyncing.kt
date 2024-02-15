@@ -12,14 +12,16 @@ import androidx.loader.content.CursorLoader
 fun userCalendars(context: Context): Array<UserCalendarListItem>? {
     val projection = object {
         val projection_array = arrayOf(
+            CalendarContract.Calendars._ID,
             CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
             CalendarContract.Calendars.ACCOUNT_NAME,
             CalendarContract.Calendars.CALENDAR_COLOR,
         )
 
-        val DISPLAY_NAME = 0
-        val ACCOUNT_NAME = 1
-        val COLOR = 2
+        val ID = 0
+        val DISPLAY_NAME = 1
+        val ACCOUNT_NAME = 2
+        val COLOR = 3
     }
 
     val cur = getCursor(context,
@@ -30,6 +32,7 @@ fun userCalendars(context: Context): Array<UserCalendarListItem>? {
     return Array(cur.count) {
         cur.moveToNext()
         UserCalendarListItem(
+            id = cur.getInt(projection.ID),
             name = cur.getString(projection.DISPLAY_NAME),
             accountName = cur.getString(projection.ACCOUNT_NAME),
             // The stored color is a 32bit ARGB, but the alpha is ignored.
@@ -39,6 +42,7 @@ fun userCalendars(context: Context): Array<UserCalendarListItem>? {
 }
 
 data class UserCalendarListItem(
+    val id: Int,
     val name: String,
     val accountName: String,
     val color: Color,

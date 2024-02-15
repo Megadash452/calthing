@@ -2,6 +2,7 @@ package me.marti.calprovexample
 
 import android.content.SharedPreferences
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.edit
 
@@ -23,7 +24,7 @@ import androidx.core.content.edit
 abstract class UserPreference<T>(
     protected val key: String,
 ) {
-    protected val state: MutableState<T?> = mutableStateOf(null)
+    protected open val state: MutableState<T?> = mutableStateOf(null)
     /** Used to access the preference. Has to be initialized when Activity.onCreate() is called. */
     protected var preferences: SharedPreferences? = null
 
@@ -75,6 +76,64 @@ abstract class UserPreference<T>(
                 this.state.value = value
             }
         }
+}
+
+/** An user preference that is a Set of `T`, where `T` is serialized to a string when stored in *SharedPreferences*.
+ *
+ * Must call **`initStore()`**, otherwise the value will not be saved to storage.
+ *
+ * @param key The name of the preference as a string.
+ * @param fromString A function applied to every stored String to convert it to a `T`.
+ * */
+class SetUserPreference<T>(
+    private val key: String,
+    private val fromString: (String) -> T
+) {
+    // Using mutableStateMapOf since the Set variant does not exist.
+    private val state = mutableStateMapOf<T, Unit>()
+    /** Used to access the preference. Has to be initialized when Activity.onCreate() is called. */
+    private var preferences: SharedPreferences? = null
+
+    /** Save the internal *state* and store it with *`SharedPreferences`*. */
+    private fun storeState() {
+        this.preferences?.edit {
+            this.putStringSet(
+                this@SetUserPreference.key,
+                buildSet<String> {
+                    this.addAll(this@SetUserPreference.state.toList().map { pair -> pair.first.toString() })
+                }
+            )
+        }
+    }
+
+    /** Initialize the **`preferences`** to enable reading and writing to the storage.  */
+    fun initStore(preferences: SharedPreferences) {
+        if (this.preferences == null) {
+            this.preferences = preferences
+            // Load the value of the preference "key" only if it exists. Otherwise the state will stay null.
+            // As a result, the default value passed into `preferences.getStringSet()` is never used.
+            if (preferences.contains(this.key)) {
+                // Load the *value* stored by *`SharedPreferences`* into the internal state.
+                this.preferences?.getStringSet(this.key, null)?.let { pref ->
+                    pref.map { this.fromString(it) }.forEach {
+                        this.state[it] = Unit
+                    }
+                }
+            }
+        }
+    }
+
+    fun contains(element: T): Boolean {
+        return this.state.containsKey(element)
+    }
+    fun add(element: T) {
+        this.state[element] = Unit
+        this.storeState()
+    }
+    fun remove(element: T) {
+        this.state.remove(element)
+        this.storeState()
+    }
 }
 
 /** An user preference of a defined type `T` that is stored as a string in *SharedPreferences*.

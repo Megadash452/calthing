@@ -10,17 +10,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import me.marti.calprovexample.UserCalendarListItem
+import me.marti.calprovexample.BooleanUserPreference
+import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
+import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 
@@ -74,8 +73,14 @@ class MainActivity : ComponentActivity() {
         // Must set navigationBarStyle to remove the scrim.
         enableEdgeToEdge(navigationBarStyle = SystemBarStyle.light(0, 0))
         super.onCreate(savedInstanceState)
+
         val preferences = this.getPreferences(Context.MODE_PRIVATE)
         this.syncDir.initStore(preferences)
+
+        val syncedCals = SetUserPreference("synced_calendars") { s -> s.toInt() }
+        syncedCals.initStore(preferences)
+        val fragmentCals = BooleanUserPreference("fragment_calendars")
+        fragmentCals.initStore(preferences)
 
         Log.d(null, "Initializing Main Activity")
 
@@ -94,24 +99,26 @@ class MainActivity : ComponentActivity() {
                             groupedCalendars = userCalendars.value,
                             hasSelectedDir = syncDir.value != null,
                             selectDirClick = { this@MainActivity.selectSyncDir() },
-                            calPermsClick =  { calendarQuery.runAction() }
+                            calPermsClick =  { calendarQuery.runAction() },
+                            calIsSynced = { id -> syncedCals.contains(id) },
+                            onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) }
                         )
                     }
                     this.composable(NavDestinationItem.Settings.route) {
                         SettingsContent(
                             navUpClick = { navController.navigateUp() },
                             settings = listOf(
-                                {
-                                    var value by remember { mutableStateOf(false) }
-                                    BooleanSetting(name = "example", value = value, onClick = { checked -> value = checked })
-                                },
-                                {
-                                    DirSetting(
-                                        name = "Syncing Directory",
-                                        value = this@MainActivity.syncDir.value,
-                                        selectClick = { this@MainActivity.selectSyncDir() }
-                                    )
-                                }
+                                { BooleanSetting(
+                                    name = "Fragment Calendars",
+                                    summary = "Store data about each Calendar in a separate .ics file",
+                                    value = fragmentCals.value ?: false,
+                                    onClick = { checked -> fragmentCals.value = checked }
+                                ) },
+                                { DirSetting(
+                                    name = "Syncing Directory",
+                                    value = this@MainActivity.syncDir.value,
+                                    selectClick = { this@MainActivity.selectSyncDir() }
+                                ) }
                             )
                         )
                     }
