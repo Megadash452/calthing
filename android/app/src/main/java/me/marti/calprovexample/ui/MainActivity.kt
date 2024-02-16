@@ -1,6 +1,5 @@
 package me.marti.calprovexample.ui
 
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -17,9 +16,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import me.marti.calprovexample.BooleanUserPreference
+import me.marti.calprovexample.PreferenceKey
 import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.UserCalendarListItem
+import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 
@@ -30,7 +31,7 @@ class MainActivity : ComponentActivity() {
     // -- Hoisted States for compose
     /** The path/URI where the synced .ics files are stored in shared storage.
       * Null if the user hasn't selected a directory. */
-    private val syncDir = StringLikeUserPreference("files_uri") { s -> s.toUri() }
+    private val syncDir = StringLikeUserPreference(PreferenceKey.SYNC_DIR_URI) { uri -> uri.toUri() }
     /** Calendars are grouped by Account Name.
       * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
     private var userCalendars: MutableState<GroupedList<String, UserCalendarListItem>?> = mutableStateOf(null)
@@ -45,7 +46,7 @@ class MainActivity : ComponentActivity() {
             userCalendars.value = cals.groupBy { cal -> cal.accountName }
         }
     }
-    // Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files.
+    /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) {
             println("User cancelled the file picker.")
@@ -74,12 +75,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(navigationBarStyle = SystemBarStyle.light(0, 0))
         super.onCreate(savedInstanceState)
 
-        val preferences = this.getPreferences(Context.MODE_PRIVATE)
+        val preferences = this.baseContext.getAppPreferences()
         this.syncDir.initStore(preferences)
 
-        val syncedCals = SetUserPreference("synced_calendars") { s -> s.toInt() }
+        val syncedCals = SetUserPreference(PreferenceKey.SYNCED_CALS) { id -> id.toInt() }
         syncedCals.initStore(preferences)
-        val fragmentCals = BooleanUserPreference("fragment_calendars")
+        val fragmentCals = BooleanUserPreference(PreferenceKey.FRAGMENT_CALS)
         fragmentCals.initStore(preferences)
 
         Log.d(null, "Initializing Main Activity")
