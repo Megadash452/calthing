@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -59,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -66,6 +69,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
@@ -89,25 +94,27 @@ private val TOP_BAR_CONTENT_COLOR
 
 
 /** The `Main` content of the app.
- * Contains the scaffolding with the `TopBar` and the `Calendars` and `Contacts` components. */
+ * Contains the scaffolding with the `TopBar` and the `Calendars` and `Contacts` components.
+ *
+ * @param navigateTo The logic behind the navigation. Takes in a *destination* to navigate to. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainContent(
     modifier: Modifier = Modifier,
-    settingsClick: () -> Unit = {},
+    navigateTo: (NavDestination) -> Unit = {},
     hasSelectedDir: Boolean = false,
     selectDirClick: () -> Unit = {},
     groupedCalendars: GroupedList<String, UserCalendarListItem>?,
     calPermsClick: () -> Unit = {},
-    calIsSynced: (Int) -> Boolean,
-    onCalSwitchClick: (Int, Boolean) -> Unit
+    calIsSynced: (Long) -> Boolean,
+    onCalSwitchClick: (Long, Boolean) -> Unit
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     @Suppress("NAME_SHADOWING")
     val tabController = TabNavController(
         selectedIdx = rememberSaveable { mutableIntStateOf(0) },
         tabs = listOf(
-            TabNavDestination(
+            PrimaryTabNavDestination(
                 icon = Icons.Default.DateRange,
                 title = "Calendars",
             ) { modifier ->
@@ -121,7 +128,7 @@ fun MainContent(
                     onCalSwitchClick = onCalSwitchClick
                 )
             },
-            TabNavDestination(
+            PrimaryTabNavDestination(
                 icon = Icons.Default.AccountCircle,
                 title = "Contacts",
             ) { modifier -> Text("Contacts section", modifier = modifier) },
@@ -133,54 +140,83 @@ fun MainContent(
         contentWindowInsets = WindowInsets.systemBars,
         topBar = {
             TopBar(
-                title = { Text(stringResource(R.string.app_name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                // title = { TabBar(containerColor = ComposeColor(0), controller = tabController) },
+                title = stringResource(R.string.app_name),
                 scrollBehavior = scrollBehavior,
                 tabController = tabController,
-                settingsClick = settingsClick
+                actions = {
+                    IconButton(onClick = { navigateTo(NavDestination.Debug) }) {
+                        Icon(Icons.Default.Build, "Debug")
+                    }
+                    IconButton(onClick = { navigateTo(NavDestination.Settings) }) {
+                        Icon(Icons.Default.Settings, "Settings")
+                    }
+                }
             )
         }
     ) { paddingValues ->
         // TODO: add anchoredDraggable modifier
-        tabController.Content(modifier = Modifier.padding(paddingValues))
+        tabController.SelectedContent(modifier = Modifier.padding(paddingValues))
     }
 }
 
 
-/** The TopBar used in the settings page. Only has the title and the Navigation Up button.
+private val topBarTitle = @Composable { title: String -> Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+private val topBarNavigationIcon = @Composable { navUpClick: (() -> Unit)? ->
+    if (navUpClick != null) {
+        IconButton(onClick = navUpClick) {
+            Icon(Icons.Default.ArrowBack, "Navigation Button Up")
+        }
+    }
+}
+/** The `TopBar` is the top-most element of the UI, and nothing should be rendered above it.
+ * It shows the **title** of the main content being rendered.
  *
- * @param navUpClick The action run when the button to *navigate up* the NavBackStack is clicked. */
+ * See the overload that takes a **`TabController`* for a `TopBar` with a `TabBar`.
+ *
+ * @param title The title of the content currently being shown.
+ * @param actions Action IconButtons that appear on the right side of the `TopBar`.
+ * @param navUpClick An optional BackButton that navigates to the previous `NavDestination` will be shown if this is not *`NULL`*. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SimpleTopBar(modifier: Modifier = Modifier, title: String, scrollBehavior: TopAppBarScrollBehavior? = null, navUpClick: () -> Unit = {}) {
+fun TopBar(
+    modifier: Modifier = Modifier,
+    scrollBehavior: TopAppBarScrollBehavior? = null,
+    title: String,
+    actions: @Composable (RowScope.() -> Unit) = {},
+    navUpClick: (() -> Unit)? = null,
+) {
+    /* When there is no TabController, use a simple TopAppBar.
+     * No Need to reduce its size as it already gives enough space for content. */
     TopAppBar(
         modifier = modifier,
         scrollBehavior = scrollBehavior,
-        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        navigationIcon = {
-            IconButton(onClick = navUpClick) {
-                Icon(Icons.Default.ArrowBack, "Navigation Button Up")
-            }
-        }
+        title = { topBarTitle(title) },
+        navigationIcon = { topBarNavigationIcon(navUpClick) },
+        actions = actions,
     )
 }
-
 /** The `TopBar` is the top-most element of the UI, and nothing should be rendered above it.
- * It shows the **title** of the main content being rendered, and any navigation (including a `TabBar`).
+ * It shows the **title** of the main content being rendered, and optionally any navigation (including a `TabBar`).
+ * The `TopBar` will reduce its *height* on scroll to make mkre space for the content while also showing the `TabBar`.
+ *
+ * See the first overload for a `TopBar` *without* a `TabBar`.
  *
  * @param title The title of the content currently being shown.
- * @param settingsClick What happens when the settings button is clicked. */
+ * @param actions Action IconButtons that appear on the right side of the `TopBar`.
+ * @param navUpClick An optional BackButton that navigates to the previous `NavDestination` will be shown if this is not *`NULL`*.
+ * @param tabController An optional set of *`Tabs`* to show a **`TabBar`** for. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TopBar(
+fun <T: TabNavDestination> TopBar(
     modifier: Modifier = Modifier,
     scrollBehavior: TopAppBarScrollBehavior? = null,
-    title: @Composable () -> Unit,
-    settingsClick: () -> Unit = {},
-    tabController: TabNavController
+    title: String,
+    actions: @Composable (RowScope.() -> Unit) = {},
+    navUpClick: (() -> Unit)? = null,
+    tabController: TabNavController<T>
 ) {
     /* FIXME: the content colors of the TopBar and TabBar are only in sync when using MediumTopAppBar.
-     * At that point just put the TabBar inside the TopBar (but that doesn't look good either) */
+             * At that point just put the TabBar inside the TopBar (but that doesn't look good either) */
     // Hoist up the animation state from inside the TopAppBar to control both the TopBar and TabBar.
     // -- Adapted from TopAppBar -> SingleRowTopAppBar:
     // > Obtain the container color from the TopAppBarColors using the `overlapFraction`. This
@@ -199,9 +235,13 @@ private fun TopBar(
     )
 
     Column(modifier = modifier) {
+        /* When there is a TabController, use a MediumTopAppBar that changes size on scroll
+         * and gives more room for content while still showing the TabBar. */
         MediumTopAppBar(
             scrollBehavior = scrollBehavior,
-            title = title,
+            title = { topBarTitle(title) },
+            navigationIcon = { topBarNavigationIcon(navUpClick) },
+            actions = actions,
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = containerColor,
                 scrolledContainerColor = containerColor,
@@ -209,11 +249,6 @@ private fun TopBar(
                 navigationIconContentColor = TOP_BAR_CONTENT_COLOR,
                 actionIconContentColor = TOP_BAR_CONTENT_COLOR,
             ),
-            actions = {
-                IconButton(onClick = settingsClick) {
-                    Icon(Icons.Default.Settings, "Settings")
-                }
-            }
         )
 
         TabBar(
@@ -229,16 +264,30 @@ private fun TopBar(
  *
  * FIXME: This should be using PrimaryTabRow, but that is not available yet. Use primary tab row when 1.2.0 becomes stable. */
 @Composable
-private fun TabBar(
+private fun <T: TabNavDestination> TabBar(
     modifier: Modifier = Modifier,
     containerColor: Color =  MaterialTheme.colorScheme.primaryContainer,
-    controller: TabNavController
+    controller: TabNavController<T>
 ) {
     val iconSize = 24.dp
     val density = LocalDensity.current
     // The width of the indicator will change depending on the content of the selected tab.
     // Value is set by onGloballyPositioned modifier of Tab's text.
     val indicatorWidth = remember { mutableStateOf(0.dp) }
+
+    @Composable
+    fun TabTitle(title: String, selected: Boolean, getIndicatorWidth: Density.(LayoutCoordinates) -> Dp) {
+        Text(
+            title,
+            modifier = if (selected) {
+                Modifier.onGloballyPositioned {
+                    indicatorWidth.value = with(density) { this.getIndicatorWidth(it) }
+                }
+            } else { Modifier },
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.5.sp
+        )
+    }
 
     TabRow(
         modifier = modifier,
@@ -267,54 +316,46 @@ private fun TabBar(
             )
         }
     ) {
-        controller.tabs.forEachIndexed { i, tab ->
-            // androidx.compose.material3.Tab(
-            //     icon = { Icon(tab.icon, null) },
-            //     text = {
-            //         Text(
-            //             tab.title,
-            //             modifier = if (controller.selectedIdx.intValue == i) {
-            //                 Modifier.onGloballyPositioned {
-            //                     indicatorWidth.value = with(density) {
-            //                         // The width of the indicator is the of the text or the icon, whichever is greater.
-            //                         androidx.compose.ui.unit.max(it.size.width.toDp(), iconSize)
-            //                     }
-            //                 }
-            //             } else { Modifier },
-            //             fontWeight = FontWeight.SemiBold,
-            //             letterSpacing = 0.5.sp
-            //         )
-            //     },
-            //     selectedContentColor = TOP_BAR_CONTENT_COLOR,
-            //     unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            //     selected = controller.selectedIdx.intValue == i,
-            //     onClick = { controller.selectedIdx.intValue = i }
-            // )
-
-            // Use the regular Tab when there is more than 2 tabs.
+        // Is not NULL only when tabs are PrimaryTabNavDestination
+        val getIcon: (@Composable (T) -> Unit)? =
+            if (controller.tabs.all { it is PrimaryTabNavDestination }) { tab: T ->
+                Icon((tab as PrimaryTabNavDestination).icon, null, modifier = Modifier.size(iconSize))
+            } else {
+                null
+            }
+        // When there are more than 2 Tabs, or the caller decides to use SimpleTabs (no icon), use regular Tab Composable.
+        val composeTab: @Composable (Int, T) -> Unit = if (controller.tabs.size <= 2 && getIcon != null) { i, tab ->
             LeadingIconTab(
-                icon = { Icon(tab.icon, null, modifier = Modifier.size(iconSize)) },
-                text = {
-                    Text(
-                        tab.title,
-                        modifier = if (controller.selectedIdx.intValue == i) {
-                            Modifier.onGloballyPositioned {
-                                indicatorWidth.value = with(density) {
-                                    // The width of the indicator is the width of the icon + padding + width of text.
-                                    iconSize + 8.dp + it.size.width.toDp()
-                                }
-                            }
-                        } else { Modifier },
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 0.5.sp
-                    )
-                },
+                icon = { getIcon(tab) },
+                text = { TabTitle(tab.title,
+                    selected = controller.selectedIdx.intValue == i,
+                    getIndicatorWidth = {
+                        // The width of the indicator is the width of the icon + padding + width of text.
+                        iconSize + 8.dp + it.size.width.toDp()
+                    }
+                ) },
+                selectedContentColor = TOP_BAR_CONTENT_COLOR,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                selected = controller.selectedIdx.intValue == i,
+                onClick = { controller.selectedIdx.intValue = i }
+            )
+        } else { i, tab ->
+            androidx.compose.material3.Tab(
+                icon = if (getIcon == null) null else { { getIcon(tab) } },
+                text = { TabTitle(tab.title,
+                    selected = controller.selectedIdx.intValue == i,
+                    getIndicatorWidth = {
+                        // The width of the indicator is the of the text or the icon, whichever is greater.
+                        androidx.compose.ui.unit.max(it.size.width.toDp(), iconSize)
+                    }
+                ) },
                 selectedContentColor = TOP_BAR_CONTENT_COLOR,
                 unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 selected = controller.selectedIdx.intValue == i,
                 onClick = { controller.selectedIdx.intValue = i }
             )
         }
+        controller.tabs.forEachIndexed{ i, tab -> composeTab(i, tab) }
     }
 }
 
@@ -334,8 +375,8 @@ private fun Calendars(
     selectDirClick: () -> Unit = {},
     groupedCalendars: GroupedList<String, UserCalendarListItem>?,
     calPermsClick: () -> Unit = {},
-    calIsSynced: (Int) -> Boolean = { false },
-    onCalSwitchClick: (Int, Boolean) -> Unit = { _, _ -> }
+    calIsSynced: (Long) -> Boolean = { false },
+    onCalSwitchClick: (Long, Boolean) -> Unit = { _, _ -> }
 ) {
     Column(modifier.padding(OUTER_PADDING.dp)) {
         if (!hasSelectedDir) {
@@ -463,13 +504,11 @@ fun SettingsContent(
     navUpClick: () -> Unit = {},
     settings: List<@Composable () -> Unit>,
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
     Scaffold(
-        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = modifier,
         contentWindowInsets = WindowInsets.systemBars,
-        topBar = { SimpleTopBar(
-            title = NavDestinationItem.Settings.title,
+        topBar = { TopBar(
+            title = "Settings",
             navUpClick = navUpClick
         ) }
     ) { paddingValues ->
@@ -526,10 +565,10 @@ fun TopBarPreview() {
     CalProvExampleTheme {
         Column {
             TopBar(
-                title = { Text("Title") },
+                title = "Title",
                 tabController = TabNavController(tabs = listOf(
-                    TabNavDestination(Icons.Default.DateRange, "Calendars") {},
-                    TabNavDestination(Icons.Default.AccountCircle, "Contacts") {}
+                    PrimaryTabNavDestination(Icons.Default.DateRange, "Calendars") {},
+                    PrimaryTabNavDestination(Icons.Default.AccountCircle, "Contacts") {}
                 ))
             )
         }

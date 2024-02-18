@@ -36,14 +36,13 @@ class MainActivity : ComponentActivity() {
       * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
     private var userCalendars: MutableState<GroupedList<String, UserCalendarListItem>?> = mutableStateOf(null)
 
-    private val calendarQuery = WithCalendarPermission(this) {
-        val cals = userCalendars(this.baseContext)
-        // me.marti.calprovexample.queryCalendar(this.baseContext)
-        if (cals == null) {
-            println("Couldn't get user calendars")
-        } else {
+    private val getUserCalendars = this.withCalendarPermission {
+        userCalendars(this.baseContext)?.also { cals ->
+            // me.marti.calprovexample.queryAllData(this.baseContext)
             // Group calendars by Account Name
             userCalendars.value = cals.groupBy { cal -> cal.accountName }
+        } ?: run {
+            println("Couldn't get user calendars")
         }
     }
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
@@ -78,7 +77,7 @@ class MainActivity : ComponentActivity() {
         val preferences = this.baseContext.getAppPreferences()
         this.syncDir.initStore(preferences)
 
-        val syncedCals = SetUserPreference(PreferenceKey.SYNCED_CALS) { id -> id.toInt() }
+        val syncedCals = SetUserPreference(PreferenceKey.SYNCED_CALS) { id -> id.toLong() }
         syncedCals.initStore(preferences)
         val fragmentCals = BooleanUserPreference(PreferenceKey.FRAGMENT_CALS)
         fragmentCals.initStore(preferences)
@@ -86,26 +85,26 @@ class MainActivity : ComponentActivity() {
         Log.d(null, "Initializing Main Activity")
 
         // Populate the list of synced calendars, but only if the user had allowed it before.
-        if (calendarQuery.hasPermission())
-            calendarQuery.runAction()
+        if (getUserCalendars.hasPermission())
+            getUserCalendars.runAction()
 
         this.setContent {
             CalProvExampleTheme {
                 val navController = rememberNavController()
 
-                NavHost(navController, startDestination = NavDestinationItem.Main.route) {
-                    this.composable(NavDestinationItem.Main.route) {
+                NavHost(navController, startDestination = NavDestination.Main.route) {
+                    this.composable(NavDestination.Main.route) {
                         MainContent(
-                            settingsClick = { navController.navigate(NavDestinationItem.Settings.route) },
+                            navigateTo = { dest -> navController.navigate(dest.route) },
                             groupedCalendars = userCalendars.value,
                             hasSelectedDir = syncDir.value != null,
                             selectDirClick = { this@MainActivity.selectSyncDir() },
-                            calPermsClick =  { calendarQuery.runAction() },
+                            calPermsClick =  { getUserCalendars.runAction() },
                             calIsSynced = { id -> syncedCals.contains(id) },
                             onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) }
                         )
                     }
-                    this.composable(NavDestinationItem.Settings.route) {
+                    this.composable(NavDestination.Settings.route) {
                         SettingsContent(
                             navUpClick = { navController.navigateUp() },
                             settings = listOf(
@@ -124,7 +123,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                this.calendarQuery.RationaleDialog()
+                WithCalendarPermission.RationaleDialog()
             }
         }
     }

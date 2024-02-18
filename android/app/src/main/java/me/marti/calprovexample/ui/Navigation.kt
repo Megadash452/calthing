@@ -1,6 +1,5 @@
 package me.marti.calprovexample.ui
 
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.mutableIntStateOf
@@ -8,44 +7,48 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /** Information about a tab in a TabBar or NavBar and the content it is tied to.
- * @param content The content composable is passed a modifier. */
-data class TabNavDestination(
-    val icon: ImageVector,
+ * @param content The content composable is passed a modifier.
+ * @see PrimaryTabNavDestination
+ * @see SimpleTabNavDestination */
+open class TabNavDestination(
     val title: String,
-    val content: @Composable (Modifier) -> Unit,
+    val content: @Composable (Modifier) -> Unit
 )
 
-class TabNavController(
+/** Data of a Primary Tab, with the **icon** above **title**. */
+class PrimaryTabNavDestination(
+    val icon: ImageVector,
+    title: String,
+    content: @Composable (Modifier) -> Unit,
+) : TabNavDestination(title, content)
+class SimpleTabNavDestination(
+    title: String,
+    content: @Composable (Modifier) -> Unit,
+) : TabNavDestination(title, content)
+
+
+/** A **`Tab Controller`** that can be shown with a `TopBar` and handles the switching of tab content.
+ * Rendering is implemented in the *`TabBar` Composable*.
+ * @property tabs All elements of tabs must be of the same type, or the code will be broken.
+ *                Tabs can be created from *`Primary` (icon)* or *`Simple` (no icon)* Tab Destinations.
+ * @see PrimaryTabNavDestination
+ * @see SimpleTabNavDestination */
+class TabNavController<out T: TabNavDestination>(
     val selectedIdx: MutableIntState = mutableIntStateOf(0),
-    val tabs: List<TabNavDestination>
+    val tabs: List<T>
 ) {
     /** Render the content of the selected Tab. */
     @Composable
-    fun Content(modifier: Modifier = Modifier) {
+    fun SelectedContent(modifier: Modifier = Modifier) {
         this.tabs[this.selectedIdx.intValue].content(modifier)
     }
 }
 
-class NavDestinationItem (
-    val title: String,
-    val content: @Composable (Modifier) -> Unit,
-) {
-    companion object {
-        val Main = NavDestinationItem(
-            title = "Main"
-        ) { modifier ->
-
-        }
-
-        val Settings = NavDestinationItem(
-            title = "Settings",
-        ) { modifier ->
-            Text("Settings Page", modifier = modifier)
-        }
-    }
+enum class NavDestination {
+    Main, Settings, Debug;
 
     /** convert the user-readable **title** into a path segment string for NavHost. */
     val route: String
-        get() = this.title.lowercase().replace(' ', '-')
+        get() = this.name.lowercase().replace(' ', '-')
 }
 
