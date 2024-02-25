@@ -4,8 +4,10 @@ import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.provider.CalendarContract
-import android.widget.Toast
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.loader.content.CursorLoader
+import kotlin.enums.EnumEntries
 
 /** Outputs a list of all calendars that are synced on the user has on the device with the calendar provider. */
 fun userCalendars(context: Context): List<UserCalendarListItem>? {
@@ -13,7 +15,7 @@ fun userCalendars(context: Context): List<UserCalendarListItem>? {
         CalendarContract.Calendars.CONTENT_URI, UserCalendarListItem.Projection
     ) ?: return null
 
-    return List(cur.count) {
+    val result = List(cur.count) {
         cur.moveToNext()
         UserCalendarListItem(
             id = cur.getLong(UserCalendarListItem.Projection.ID.ordinal),
@@ -23,6 +25,9 @@ fun userCalendars(context: Context): List<UserCalendarListItem>? {
             color = Color(cur.getInt(UserCalendarListItem.Projection.COLOR.ordinal)),
         )
     }
+
+    cur.close()
+    return result
 }
 
 data class UserCalendarListItem(
@@ -45,28 +50,38 @@ data class UserCalendarListItem(
     }
 }
 
-fun queryAllData(context: Context) {
-    // Run query
-    val cur = context.getCursor(CalendarContract.Calendars.CONTENT_URI, AllCalendarsProjection) ?: return
+class AllData(context: Context) {
+    val calendars: Data = Data(context, CalendarContract.Calendars.CONTENT_URI, EmptyProjection)
+    val events: Data = Data(context, CalendarContract.Events.CONTENT_URI, EmptyProjection)
+    val reminders: Data = Data(context, CalendarContract.Reminders.CONTENT_URI, EmptyProjection)
+    val attendees: Data = Data(context, CalendarContract.Attendees.CONTENT_URI, EmptyProjection)
 
-    // val client = context.contentResolver.acquireContentProviderClient(CalendarContract.Calendars.CONTENT_URI)!!
-    // client.close()
+    class Data(context: Context, uri: Uri, projection: QueryProjection) {
+        private var cursor = initializeCursor(context, uri, projection)
+        val data: SnapshotStateList<Map<String, String>> = mutableStateListOf()
 
-    val columns = cur.columnCount
-    while (cur.moveToNext()) {
-        // Get the field values
-        for (i in 0 ..< columns) {
-            if (i != 0)
-                print("\t")
-            println("${cur.getColumnName(i)}: ${cur.getString(i)}")
+        fun queryNext() {
+            this.data.add(query(cursor))
         }
 
-        // Do something with the values...
+        companion object {
+            private fun initializeCursor(context: Context, uri: Uri, projection: QueryProjection): Cursor {
+                return context.getCursor(uri, projection) ?: throw Exception("Cant get query cursor")
+                // val client = context.contentResolver.acquireContentProviderClient(CalendarContract.Calendars.CONTENT_URI)!!
+                // client.close()
+                // cur.close()
+            }
+            private fun query(cursor: Cursor): Map<String, String> {
+                cursor.moveToNext()
+                val map = mutableMapOf<String, String>()
+                // Get the field values
+                for (i in 0 ..< cursor.columnCount)
+                    map[cursor.getColumnName(i)] = cursor.getString(i) ?: ""
+                return map
+            }
+        }
     }
 
-    Toast.makeText(context, "Printed calendar query results", Toast.LENGTH_SHORT).show()
-
-    cur.close()
 }
 
 private enum class AllCalendarsProjection(val s: String) {
@@ -82,6 +97,7 @@ private enum class AllCalendarsProjection(val s: String) {
     TIME_ZONE(CalendarContract.Calendars.CALENDAR_TIME_ZONE),
     IS_PRIMARY(CalendarContract.Calendars.IS_PRIMARY),
     DIRTY(CalendarContract.Calendars.DIRTY),
+    MUTATORS(CalendarContract.Calendars.MUTATORS),
     SYNC_EVENTS(CalendarContract.Calendars.SYNC_EVENTS),
     VISIBLE(CalendarContract.Calendars.VISIBLE);
 
@@ -92,20 +108,31 @@ private enum class AllCalendarsProjection(val s: String) {
     }
 }
 
+private enum class EmptyProjection(val s: String) {
+    ;
+
+    companion object : QueryProjection {
+        override fun projectionArray(): Array<String> {
+            return EmptyProjection.entries.toList().map { it.s }.toTypedArray()
+        }
+    }
+}
+
 /** The projection that is passed to a `CursorLoader` to tell it what columns we want to read.
  * Should be implemented by the **`companion object`** of an enum whose entries are the projection. */
 interface QueryProjection {
     /** Convert the projection object into a String Array to pass into `CursorLoader`. */
     fun projectionArray(): Array<String>
 }
-private fun Context.getCursor(uri: Uri, projection: QueryProjection, selection: String = "", selectionArgs: Array<String> = arrayOf()): Cursor? {
+
+private fun Context.getCursor(uri: Uri, projection: QueryProjection, selection: String = "", selectionArgs: Array<String> = arrayOf(), sort: String = ""): Cursor? {
     val loader = CursorLoader(
         this,
         uri,
         projection.projectionArray(),
         selection,
         selectionArgs,
-        null
+        sort
     )
 
     return try {
@@ -119,8 +146,10 @@ private fun Context.getCursor(uri: Uri, projection: QueryProjection, selection: 
     }
 }
 
-fun asSyncAdapter(uri: Uri): Uri {
+fun asSyncAdapter(uri: Uri, accName: String, accType: String): Uri {
     return uri.buildUpon()
         .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
+        .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, accName)
+        .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, accType)
         .build()
 }

@@ -10,11 +10,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import me.marti.calprovexample.AllData
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.PreferenceKey
 import me.marti.calprovexample.SetUserPreference
@@ -38,7 +40,6 @@ class MainActivity : ComponentActivity() {
 
     private val getUserCalendars = this.withCalendarPermission {
         userCalendars(this.baseContext)?.also { cals ->
-            // me.marti.calprovexample.queryAllData(this.baseContext)
             // Group calendars by Account Name
             userCalendars.value = cals.groupBy { cal -> cal.accountName }
         } ?: run {
@@ -120,6 +121,13 @@ class MainActivity : ComponentActivity() {
                                     selectClick = { this@MainActivity.selectSyncDir() }
                                 ) }
                             )
+                        )
+                    }
+                    this.composable(NavDestination.Debug.route) {
+                        val data = remember { AllData(this@MainActivity.baseContext) }
+                        DebugContent(
+                            navUpClick = { navController.navigateUp() },
+                            data = data,
                         )
                     }
                 }
