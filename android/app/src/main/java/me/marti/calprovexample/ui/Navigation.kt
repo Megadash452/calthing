@@ -2,6 +2,7 @@ package me.marti.calprovexample.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -17,36 +18,21 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 
-data class NavDestinationItem (
-    val icon: ImageVector,
-    val title: String,
-) {
-    companion object {
-        val Calendars = NavDestinationItem(
-            icon = Icons.Default.DateRange,
-            title = "Calendars"
-        )
-        val Contacts = NavDestinationItem(
-            icon = Icons.Default.AccountCircle,
-            title = "Contacts"
-        )
-        val Settings = NavDestinationItem(
-            icon = Icons.Default.Settings,
-            title = "Settings",
-        )
-
-        val All = listOf(Calendars, Contacts, Settings)
-    }
+enum class NavDestination(val icon: ImageVector) {
+    Calendars(Icons.Default.DateRange),
+    Contacts(Icons.Default.AccountCircle),
+    Settings(Icons.Default.Settings),
+    Debug(Icons.Default.Build);
 
     /** convert the user-readable **title** into a path segment string for NavHost. */
     val route: String
-        get() = this.title.lowercase().replace(' ', '-')
+        get() = this.name.lowercase().replace(' ', '-')
 }
 
 @Composable
 fun NavBar(
     modifier: Modifier = Modifier,
-    items: List<NavDestinationItem> = NavDestinationItem.All,
+    items: List<NavDestination> = NavDestination.entries,
     controller: NavController? = null
 ) {
     val backStack by controller?.currentBackStackEntryAsState() ?: remember { mutableStateOf(null) }
@@ -55,7 +41,7 @@ fun NavBar(
         items.forEachIndexed { i, item ->
             NavigationBarItem(
                 icon = { Icon(item.icon, null) },
-                label = { Text(item.title) },
+                label = { Text(item.name) },
                 // When there is no controller the first item is always selected
                 selected = if (backStack != null) backStack!!.destination.route == item.route else i == 0,
                 onClick = {

@@ -1,6 +1,5 @@
 package me.marti.calprovexample.ui
 
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -10,25 +9,27 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize]]
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import me.marti.calprovexample.AllData
+import me.marti.calprovexample.BooleanUserPreference
+import me.marti.calprovexample.PreferenceKey
+import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.UserCalendarListItem
+import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 
@@ -39,22 +40,20 @@ class MainActivity : ComponentActivity() {
     // -- Hoisted States for compose
     /** The path/URI where the synced .ics files are stored in shared storage.
       * Null if the user hasn't selected a directory. */
-    private val syncDir = StringLikeUserPreference("files_uri") { s -> s.toUri() }
+    private val syncDir = StringLikeUserPreference(PreferenceKey.SYNC_DIR_URI) { uri -> uri.toUri() }
     /** Calendars are grouped by Account Name.
       * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
     private var userCalendars: MutableState<GroupedList<String, UserCalendarListItem>?> = mutableStateOf(null)
 
-    private val calendarQuery = WithCalendarPermission(this) {
-        val cals = userCalendars(this.baseContext)
-        // me.marti.calprovexample.queryCalendar(this.baseContext)
-        if (cals == null) {
-            println("Couldn't get user calendars")
-        } else {
+    private val getUserCalendars = this.withCalendarPermission {
+        userCalendars(this.baseContext)?.also { cals ->
             // Group calendars by Account Name
             userCalendars.value = cals.groupBy { cal -> cal.accountName }
+        } ?: run {
+            println("Couldn't get user calendars")
         }
     }
-    // Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files.
+    /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) {
             println("User cancelled the file picker.")
@@ -82,14 +81,20 @@ class MainActivity : ComponentActivity() {
         // Must set navigationBarStyle to remove the scrim.
         enableEdgeToEdge(navigationBarStyle = SystemBarStyle.light(0, 0))
         super.onCreate(savedInstanceState)
-        val preferences = this.getPreferences(Context.MODE_PRIVATE)
+
+        val preferences = this.baseContext.getAppPreferences()
         this.syncDir.initStore(preferences)
+
+        val syncedCals = SetUserPreference(PreferenceKey.SYNCED_CALS) { id -> id.toLong() }
+        syncedCals.initStore(preferences)
+        val fragmentCals = BooleanUserPreference(PreferenceKey.FRAGMENT_CALS)
+        fragmentCals.initStore(preferences)
 
         Log.d(null, "Initializing Main Activity")
 
         // Populate the list of synced calendars, but only if the user had allowed it before.
-        if (calendarQuery.hasPermission())
-            calendarQuery.runAction()
+        if (getUserCalendars.hasPermission())
+            getUserCalendars.runAction()
 
         this.setContent {
             CalProvExampleTheme {
@@ -106,41 +111,48 @@ class MainActivity : ComponentActivity() {
                 ) { paddingValues ->
                     NavHost(
                         navController,
-                        startDestination = NavDestinationItem.All[0].route,
+                        startDestination = NavDestination.All[0].route,
                         modifier = Modifier.padding(paddingValues)
                     ) {
-                        this.composable(NavDestinationItem.Calendars.route) {
+                        this.composable(NavDestination.Calendars.route) {
                             Calendars(
                                 modifier = Modifier.fillMaxSize(),
+                                navigateTo = { dest -> navController.navigate(dest.route) },
                                 groupedCalendars = this@MainActivity.userCalendars.value,
                                 hasSelectedDir = this@MainActivity.syncDir.value != null,
                                 selectDirClick = { this@MainActivity.selectSyncDir() },
-                                calPermsClick = { this@MainActivity.calendarQuery.runAction() }
+                                calPermsClick = { this@MainActivity.getUserCalendars.runAction() },
+                                calIsSynced = { id -> syncedCals.contains(id) },
+                                onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) },
                             )
                         }
-                        this.composable(NavDestinationItem.Contacts.route) {
+                        this.composable(NavDestination.Contacts.route) {
                             Text("Contacts Page", modifier = Modifier.fillMaxSize())
                         }
-                        this.composable(NavDestinationItem.Settings.route) {
+                        this.composable(NavDestination.Settings.route) {
                             Settings(
                                 modifier = Modifier.fillMaxSize(),
                                 settings = listOf(
-                                {
-                                    var value by remember { mutableStateOf(false) }
-                                    BooleanSetting(name = "example", value = value, onClick = { checked -> value = checked })
-                                },
-                                {
-                                    DirSetting(
-                                        name = "Syncing Directory",
-                                        value = this@MainActivity.syncDir.value,
-                                        selectClick = { this@MainActivity.selectSyncDir() }
-                                    )
-                                }
+                                { BooleanSetting(
+                                    name = "Fragment Calendars",
+                                    summary = "Store data about each Calendar in a separate .ics file",
+                                    value = fragmentCals.value ?: false,
+                                    onClick = { checked -> fragmentCals.value = checked }
+                                ) },
+                                { DirSetting(
+                                    name = "Syncing Directory",
+                                    value = this@MainActivity.syncDir.value,
+                                    selectClick = { this@MainActivity.selectSyncDir() }
+                                ) }
                             ))
+                        }
+                        this.composable(NavDestination.Debug.route) {
+                            val data = remember { AllData(this@MainActivity.baseContext) }
+                            DebugContent(modifier = Modifier.fillMaxSize(), data)
                         }
                     }
                 }
-                this.calendarQuery.RationaleDialog()
+                WithCalendarPermission.RationaleDialog()
             }
         }
     }

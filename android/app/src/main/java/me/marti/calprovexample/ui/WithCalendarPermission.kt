@@ -23,10 +23,19 @@ import me.marti.calprovexample.R
 private const val READ_CALENDAR_PERMISSION = "android.permission.READ_CALENDAR"
 private const val WRITE_CALENDAR_PERMISSION = "android.permission.WRITE_CALENDAR"
 
+/** Creates a function that can be run only if Calendar Permissions are granted.
+ * Must be called *before* `MainActivity.onCreate()`, so it must be called when setting a field member of the Activity.
+ * @see WithCalendarPermission */
+fun MainActivity.withCalendarPermission(action: () -> Unit): WithCalendarPermission {
+    return WithCalendarPermission(this, action)
+}
+
 /**
  * Run some action that requires calendar permissions safely,
  * guaranteeing that the action will not be run unless the activity has the required permissions,
  * and requests the necessary permissions if it doesn't.
+ *
+ * An instance of this classed must be initialized *before* the `Activity.onCreate()` method.
  *
  * The **Rationale dialog** should be included in any activity that makes use of this class.
  * If the dialog is not included in the UI, and the system determines that the dialog should be shown,
@@ -34,8 +43,8 @@ private const val WRITE_CALENDAR_PERMISSION = "android.permission.WRITE_CALENDAR
  *
  * ## Example
  * ```kt
- * class MyActivity : {
- *     private val val calendarActionManager = CalendarPermission(this) { ... }
+ * class MyActivity : ComponentActivity() {
+ *     private val getCalendars = this.withCalendarPermission { ... }
  *
  *     override fun onCreate(savedInstanceState: Bundle?) {
  *         ...
@@ -43,7 +52,7 @@ private const val WRITE_CALENDAR_PERMISSION = "android.permission.WRITE_CALENDAR
  *         this.setContent {
  *             MyTheme {
  *                 ...
- *                 this.calendarActionManager.RationaleDialog()
+ *                 WithCalendarPermission.RationaleDialog()
  *             }
  *         }
  *     }
@@ -57,12 +66,9 @@ class WithCalendarPermission(
     private val activity: ComponentActivity,
     private val action: () -> Unit
 ) {
-    private val dialogController = mutableStateOf(false)
-
     private val calendarPermissionRequestLauncher = this.activity.registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    )
-    { results ->
+    ) { results ->
         var canRun = true
         for (permission in results)
             if (!permission.value) {
@@ -79,9 +85,7 @@ class WithCalendarPermission(
             this.action()
     }
 
-    /**
-     * Run the action given when constructing this object.
-     */
+    /** Run the action given when constructing this object. */
     fun runAction() {
         if (this.hasPermission()) {
             this.action()
@@ -94,7 +98,8 @@ class WithCalendarPermission(
                 WRITE_CALENDAR_PERMISSION
             )
         ) {
-            this.dialogController.value = true
+            dialogController.value = true
+            focusedObject = this
         } else {
             this.requestPermissions()
         }
@@ -114,20 +119,26 @@ class WithCalendarPermission(
         ))
     }
 
-    @Composable
-    fun RationaleDialog() {
-        // The if statement "subscribes" to the value, and this code is run every time the value changes.
-        if (this.dialogController.value) {
-            CalendarRationaleDialog(
-                onConfirm = {
-                    this.dialogController.value = false
-                    this.requestPermissions()
-                },
-                onDismiss = {
-                    this.dialogController.value = false
-                    Log.d(null, "Calendar Permission Rationale Dialog dismissed")
-                }
-            )
+    companion object {
+        private val dialogController = mutableStateOf(false)
+        /** Which CalendarPermission instance will request permission and run its action. */
+        private var focusedObject: WithCalendarPermission? = null
+
+        @Composable
+        fun RationaleDialog() {
+            // The if statement "subscribes" to the value, and this code is run every time the value changes.
+            if (this.dialogController.value) {
+                CalendarRationaleDialog(
+                    onConfirm = {
+                        this.dialogController.value = false
+                        this.focusedObject?.requestPermissions()
+                    },
+                    onDismiss = {
+                        this.dialogController.value = false
+                        Log.d(null, "Calendar Permission Rationale Dialog dismissed")
+                    }
+                )
+            }
         }
     }
 }
