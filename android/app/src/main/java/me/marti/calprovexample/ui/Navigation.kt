@@ -2,7 +2,6 @@ package me.marti.calprovexample.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -21,8 +20,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 enum class NavDestination(val icon: ImageVector) {
     Calendars(Icons.Default.DateRange),
     Contacts(Icons.Default.AccountCircle),
-    Settings(Icons.Default.Settings),
-    Debug(Icons.Default.Build);
+    Settings(Icons.Default.Settings);
 
     /** convert the user-readable **title** into a path segment string for NavHost. */
     val route: String

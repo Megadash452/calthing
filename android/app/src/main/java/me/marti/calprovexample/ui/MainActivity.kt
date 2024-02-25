@@ -9,21 +9,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize]]
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import me.marti.calprovexample.AllData
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.PreferenceKey
 import me.marti.calprovexample.SetUserPreference
@@ -104,20 +102,19 @@ class MainActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets.systemBars,
                     bottomBar = {
                         NavBar(
-                            items = NavDestinationItem.All,
+                            items = NavDestination.entries,
                             controller = navController
                         )
                     }
                 ) { paddingValues ->
                     NavHost(
                         navController,
-                        startDestination = NavDestination.All[0].route,
+                        startDestination = NavDestination.entries[0].route,
                         modifier = Modifier.padding(paddingValues)
                     ) {
                         this.composable(NavDestination.Calendars.route) {
                             Calendars(
                                 modifier = Modifier.fillMaxSize(),
-                                navigateTo = { dest -> navController.navigate(dest.route) },
                                 groupedCalendars = this@MainActivity.userCalendars.value,
                                 hasSelectedDir = this@MainActivity.syncDir.value != null,
                                 selectDirClick = { this@MainActivity.selectSyncDir() },
@@ -145,10 +142,6 @@ class MainActivity : ComponentActivity() {
                                     selectClick = { this@MainActivity.selectSyncDir() }
                                 ) }
                             ))
-                        }
-                        this.composable(NavDestination.Debug.route) {
-                            val data = remember { AllData(this@MainActivity.baseContext) }
-                            DebugContent(modifier = Modifier.fillMaxSize(), data)
                         }
                     }
                 }
