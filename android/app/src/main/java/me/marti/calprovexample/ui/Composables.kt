@@ -1,59 +1,50 @@
 package me.marti.calprovexample.ui
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredHeight
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LeadingIconTab
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
-import androidx.compose.material3.PlainTooltipBox
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,16 +52,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
@@ -164,7 +150,7 @@ private val topBarTitle = @Composable { title: String -> Text(title, maxLines = 
 private val topBarNavigationIcon = @Composable { navUpClick: (() -> Unit)? ->
     if (navUpClick != null) {
         IconButton(onClick = navUpClick) {
-            Icon(Icons.Default.ArrowBack, "Navigation Button Up")
+            Icon(Icons.AutoMirrored.Default.ArrowBack, "Navigation Button Up")
         }
     }
 }
@@ -197,7 +183,7 @@ fun TopBar(
 }
 /** The `TopBar` is the top-most element of the UI, and nothing should be rendered above it.
  * It shows the **title** of the main content being rendered, and optionally any navigation (including a `TabBar`).
- * The `TopBar` will reduce its *height* on scroll to make mkre space for the content while also showing the `TabBar`.
+ * The `TopBar` will reduce its *height* on scroll to make more space for the content while also showing the `TabBar`.
  *
  * See the first overload for a `TopBar` *without* a `TabBar`.
  *
@@ -260,66 +246,34 @@ fun <T: TabNavDestination> TopBar(
 
 /** The `TabBar` is responsible for switching the content view using the controller on the user's request.
  *
- * The tab bar should be rendered right under the `TopBar` in composition.
- *
- * FIXME: This should be using PrimaryTabRow, but that is not available yet. Use primary tab row when 1.2.0 becomes stable. */
+ * The tab bar should be rendered right under the `TopBar` in composition. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun <T: TabNavDestination> TabBar(
     modifier: Modifier = Modifier,
     containerColor: Color =  MaterialTheme.colorScheme.primaryContainer,
     controller: TabNavController<T>
 ) {
-    val iconSize = 24.dp
-    val density = LocalDensity.current
-    // The width of the indicator will change depending on the content of the selected tab.
-    // Value is set by onGloballyPositioned modifier of Tab's text.
-    val indicatorWidth = remember { mutableStateOf(0.dp) }
-
     @Composable
-    fun TabTitle(title: String, selected: Boolean, getIndicatorWidth: Density.(LayoutCoordinates) -> Dp) {
+    fun TabTitle(title: String) {
         Text(
             title,
-            modifier = if (selected) {
-                Modifier.onGloballyPositioned {
-                    indicatorWidth.value = with(density) { this.getIndicatorWidth(it) }
-                }
-            } else { Modifier },
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.5.sp
         )
     }
 
-    TabRow(
+    PrimaryTabRow(
         modifier = modifier,
         selectedTabIndex = controller.selectedIdx.intValue,
         containerColor = containerColor,
-        divider = { Divider(thickness = 1.dp, color = MaterialTheme.colorScheme.surfaceVariant) },
-        indicator = { tabPositions ->
-            val currentTabPosition = tabPositions[controller.selectedIdx.intValue]
-            val width = indicatorWidth.value
-            val indicatorOffset by animateDpAsState(
-                targetValue = currentTabPosition.left,
-                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
-                label = "TabIndicatorPosition"
-            )
-            Spacer(
-                Modifier
-                    .wrapContentSize(Alignment.BottomStart)
-                    // Center the indicator on the tab
-                    .offset(x = indicatorOffset + (currentTabPosition.width - width) / 2)
-                    .requiredHeight(3.dp)
-                    .requiredWidth(width)
-                    .background(
-                        color = MaterialTheme.colorScheme.primary,
-                        shape = RoundedCornerShape(3.0.dp)
-                    )
-            )
-        }
+        divider = { HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.surfaceVariant) },
+        // indicator = { TabRowDefaults.PrimaryIndicator() }
     ) {
         // Is not NULL only when tabs are PrimaryTabNavDestination
         val getIcon: (@Composable (T) -> Unit)? =
             if (controller.tabs.all { it is PrimaryTabNavDestination }) { tab: T ->
-                Icon((tab as PrimaryTabNavDestination).icon, null, modifier = Modifier.size(iconSize))
+                Icon((tab as PrimaryTabNavDestination).icon, null, modifier = Modifier.size(24.dp))
             } else {
                 null
             }
@@ -327,13 +281,7 @@ private fun <T: TabNavDestination> TabBar(
         val composeTab: @Composable (Int, T) -> Unit = if (controller.tabs.size <= 2 && getIcon != null) { i, tab ->
             LeadingIconTab(
                 icon = { getIcon(tab) },
-                text = { TabTitle(tab.title,
-                    selected = controller.selectedIdx.intValue == i,
-                    getIndicatorWidth = {
-                        // The width of the indicator is the width of the icon + padding + width of text.
-                        iconSize + 8.dp + it.size.width.toDp()
-                    }
-                ) },
+                text = { TabTitle(tab.title) },
                 selectedContentColor = TOP_BAR_CONTENT_COLOR,
                 unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 selected = controller.selectedIdx.intValue == i,
@@ -342,13 +290,7 @@ private fun <T: TabNavDestination> TabBar(
         } else { i, tab ->
             androidx.compose.material3.Tab(
                 icon = if (getIcon == null) null else { { getIcon(tab) } },
-                text = { TabTitle(tab.title,
-                    selected = controller.selectedIdx.intValue == i,
-                    getIndicatorWidth = {
-                        // The width of the indicator is the of the text or the icon, whichever is greater.
-                        androidx.compose.ui.unit.max(it.size.width.toDp(), iconSize)
-                    }
-                ) },
+                text = { TabTitle(tab.title) },
                 selectedContentColor = TOP_BAR_CONTENT_COLOR,
                 unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 selected = controller.selectedIdx.intValue == i,
@@ -391,7 +333,7 @@ private fun Calendars(
                     onclick = selectDirClick
                 )
             }
-            Divider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 2).dp))
+            HorizontalDivider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 2).dp))
         }
 
         if (groupedCalendars == null) {
@@ -453,7 +395,6 @@ private fun Calendars(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CalendarListItem(cal: UserCalendarListItem, isSynced: Boolean = false, onSwitchClick: (Boolean) -> Unit = {}) {
     ListItem(
@@ -475,10 +416,9 @@ private fun CalendarListItem(cal: UserCalendarListItem, isSynced: Boolean = fals
         },
         leadingContent = {
             PlainTooltipBox(
-                tooltip = { Text("This calendar is synced") },
+                tooltipContent = { Text("This calendar is synced") },
             ) {
                 Icon(
-                    modifier = Modifier.tooltipAnchor(),
                     imageVector = Icons.Default.DateRange,
                     contentDescription = "Calendars list item",
                     tint = cal.color.toColor()
@@ -524,6 +464,21 @@ fun IconTextButton(modifier: Modifier = Modifier, icon: Painter, text: String, o
         Icon(icon, null, modifier = Modifier.size(18.dp))
         Text(text, modifier.padding(start = 8.dp))
     }
+}
+
+/** The new `TooltipBox` is more verbose than the Plain/RichTooltipBox in the previous version... */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlainTooltipBox(modifier: Modifier = Modifier, tooltipContent: @Composable () -> Unit, content: @Composable () -> Unit) {
+    TooltipBox(
+        modifier = modifier,
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        state = rememberTooltipState(),
+        tooltip = { this.PlainTooltip {
+            tooltipContent()
+        } },
+        content = content
+    )
 }
 
 
