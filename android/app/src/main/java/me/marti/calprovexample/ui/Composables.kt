@@ -1,28 +1,44 @@
 package me.marti.calprovexample.ui
 
+import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandIn
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +49,7 @@ import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -45,13 +62,19 @@ import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -91,14 +114,16 @@ fun MainContent(
     hasSelectedDir: Boolean = false,
     selectDirClick: () -> Unit = {},
     groupedCalendars: GroupedList<String, UserCalendarListItem>?,
+    addCalendar: () -> Unit = {},
     calPermsClick: () -> Unit = {},
     calIsSynced: (Long) -> Boolean,
     onCalSwitchClick: (Long, Boolean) -> Unit
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    @Suppress("NAME_SHADOWING")
-    val tabController = TabNavController(
-        selectedIdx = rememberSaveable { mutableIntStateOf(0) },
+    var actionsExpanded by remember { mutableStateOf(false) }
+    val selectedTab = rememberSaveable { mutableIntStateOf(0) }
+    val tabController = remember { TabNavController(
+        selectedIdx = selectedTab,
         tabs = listOf(
             PrimaryTabNavDestination(
                 icon = Icons.Default.DateRange,
@@ -119,12 +144,26 @@ fun MainContent(
                 title = "Contacts",
             ) { modifier -> Text("Contacts section", modifier = modifier) },
         )
-    )
+    ) }
 
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets.systemBars,
-        topBar = {
+        floatingActionButton = {
+            ExpandableFloatingActionButtons(
+                expanded = actionsExpanded,
+                expand = { actionsExpanded = true },
+                description = "Add/New Calendar",
+                icon = Icons.Default.Add,
+                actions = listOf(
+                    ExpandableFABAction(Icons.Default.Create, "New blank calendar", addCalendar),
+                    ExpandableFABAction(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /*TODO*/ },
+                    ExpandableFABAction(R.drawable.rounded_upload_file_24, "Import from file") { /*TODO*/ },
+                )
+            )
+        },
+    ) { paddingValues ->
+        Column(Modifier.padding(bottom = paddingValues.calculateBottomPadding())) {
             TopBar(
                 title = stringResource(R.string.app_name),
                 scrollBehavior = scrollBehavior,
@@ -138,10 +177,10 @@ fun MainContent(
                     }
                 }
             )
+            // TODO: add anchoredDraggable modifier
+            tabController.SelectedContent()
         }
-    ) { paddingValues ->
-        // TODO: add anchoredDraggable modifier
-        tabController.SelectedContent(modifier = Modifier.padding(paddingValues))
+        ExpandedFabBackgroundOverlay(expanded = actionsExpanded) { actionsExpanded = false }
     }
 }
 
@@ -301,6 +340,134 @@ private fun <T: TabNavDestination> TabBar(
     }
 }
 
+/** Used in **`ExpandableFloatingActionButtons`** */
+private class ExpandableFABAction(
+    val icon: @Composable () -> Unit,
+    val label: String,
+    val onClick: () -> Unit
+) {
+    constructor(icon: ImageVector, label: String, onClick: () -> Unit):
+            this({ Icon(icon, null) }, label, onClick)
+    constructor(@DrawableRes icon: Int, label: String, onClick: () -> Unit):
+            this({ Icon(painterResource(icon), null) }, label, onClick)
+}
+
+/** A `FloatingActionButton` that can be expanded to show a set of multiple *sub actions*.
+ *
+ * When the main `FAB` (*collapsed mode*) is pressed, `Small FAB`s will expand upwards
+ * and the main `FAB` (*expanded mode*) will change to the first sub-action.
+ * When in *expanded mode*, an overlay will darken all content with an **overlay** behind the
+ * `FAB`s to place the focus on the `FAB`s.
+ *
+ * Also when in *expanded mode*, clicking the darkening overlay will revert the state to *collapsed mode*.
+ * Clicking the back button (or doing the back gesture, depending on system settings) should also
+ * revert the state to *collapsed mode*, but this part is **TODO: *not yet implemented***.
+ *
+ * See the `Scaffold` in **`MainContent()`** for an example of how to use this Composable.
+ * @see MainContent
+ * @see ExpandedFabBackgroundOverlay
+ *
+ * @param expanded Whether the state of the buttons is in *expanded* or *collapsed mode*.
+ * @param expand A function called when the main `FAB` is clicked in *collapsed mode*,
+ *               will set the value of **expanded** to `true`.
+ * @param description The overall *description* of all the actions to show in a `Tooltip`.
+ * @param icon The icon shown in the `FAB` in *collapsed mode*.
+ * @param actions The sub-actions shown in *expanded mode*. They are rendered *from the bottom up*.
+ *                The first **action** in the list will replace the main `FAB` in *expanded mode*.
+ *                The rest of the actions will compose `Small FAB`s above the fist `FAB`.
+ * */
+@Composable
+private fun ExpandableFloatingActionButtons(
+    modifier: Modifier = Modifier,
+    expanded: Boolean,
+    expand: () -> Unit = {},
+    description: String? = null,
+    icon: ImageVector,
+    actions: List<ExpandableFABAction>
+) {
+    var fabWidth by remember { mutableStateOf(0.dp) }
+    val mainFabColor by animateColorAsState(
+        if (expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
+        label = "Main FAB Container Color Animation"
+    )
+    val spacing = 12.dp
+    val firstAction = remember { actions.getOrNull(0) ?: throw Exception("Actions must have at least 2 elements") }
+    // Sub actions are shown from the bottom up, so it is reversed
+    val subActions = remember { actions.drop(1).asReversed() }
+    @Composable
+    fun ActionLabel(text: String) {
+        AnimatedVisibility(visible = expanded) {
+            Text(text, fontWeight = FontWeight.SemiBold)
+        }
+    }
+
+    Column(modifier = modifier, horizontalAlignment = Alignment.End) {
+        subActions.forEach { action ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
+                ActionLabel(action.label)
+                AnimatedVisibility(visible = expanded, enter = expandIn(), exit = shrinkOut()) {
+                    Box(Modifier.width(fabWidth), contentAlignment = Alignment.Center) {
+                        SmallFloatingActionButton(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            onClick = action.onClick,
+                            content = action.icon
+                        )
+                    }
+                }
+            }
+        }
+        Row(modifier = Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
+            ActionLabel(firstAction.label)
+            val mainFab = @Composable {
+                FloatingActionButton(
+                    containerColor = mainFabColor,
+                    // When actions are expanded, the FAB will change to one of the actions
+                    onClick = if (expanded) firstAction.onClick else expand
+                ) {
+                    Crossfade(targetState = expanded, label = "Calendars FAB Expanded") { expanded ->
+                        if (expanded)
+                            firstAction.icon()
+                        else
+                            Icon(icon, description)
+                    }
+                }
+            }
+            val density = LocalDensity.current
+            Box(modifier = Modifier.onGloballyPositioned {
+                fabWidth = with(density) { it.size.width.toDp() }
+            }) {
+                if (description != null)
+                    PlainTooltipBox(
+                        tooltipContent = { Text(description) },
+                        content = mainFab
+                    )
+                else
+                    mainFab()
+            }
+        }
+    }
+}
+/** Dialog-like overlay that darkens the content of the screen to place focus on the `FAB`.
+ * The overlay sits between the *content* of the screen and the `FAB`.
+ * The overlay will block all input for the content, but not for the `FAB`.
+ *
+ * The overlay is shown when the `FAB`s are in *expanded mode*, and hidden when in *collapsed mode*.
+ * When the overlay is **clicked**, it will set the **expanded** value to `false`.
+ *
+ * See the content of the `Scaffold` in **`MainContent`** for an example of how to use this overlay.
+ * @see ExpandableFloatingActionButtons */
+@Composable
+private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded: Boolean, collapse: () -> Unit) {
+    AnimatedVisibility(modifier = modifier, visible = expanded, enter = fadeIn(), exit = fadeOut()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color(0xc3000000))
+                .clickable(onClick = collapse)
+        )
+    }
+}
 
 /**
  * The starting screen for the Main Activity.
@@ -360,7 +527,8 @@ private fun Calendars(
                     Modifier
                         .padding(MIDDLE_PADDING.dp)
                         .clip(MaterialTheme.shapes.small),
-                    verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp)
+                    verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp),
+                    contentPadding = PaddingValues(bottom = 64.dp)
                 ) {
                     groupedCalendars.forEach { (accountName, calGroup) ->
                         this.stickyHeader {

@@ -101,6 +101,7 @@ class MainActivity : ComponentActivity() {
                             hasSelectedDir = syncDir.value != null,
                             selectDirClick = { this@MainActivity.selectSyncDir() },
                             calPermsClick =  { getUserCalendars.runAction() },
+                            addCalendar = { /* TODO */ },
                             calIsSynced = { id -> syncedCals.contains(id) },
                             onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) }
                         )
