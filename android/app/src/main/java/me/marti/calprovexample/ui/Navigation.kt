@@ -5,7 +5,6 @@ import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import me.marti.calprovexample.NonEmptyList
 
 /** Information about a tab in a TabBar or NavBar and the content it is tied to.
  * @param content The content composable is passed a modifier.
@@ -25,7 +24,7 @@ open class PrimaryTabNavDestination(
 class PrimaryTabNavDestinationWithFab(
     icon: ImageVector,
     title: String,
-    val fabActions: NonEmptyList<ExpandableFABAction>,
+    val fab: ExpandableFab,
     content: @Composable (Modifier) -> Unit,
 ) : PrimaryTabNavDestination(icon, title, content)
 class SimpleTabNavDestination(

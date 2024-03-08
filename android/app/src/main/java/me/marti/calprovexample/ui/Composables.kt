@@ -31,9 +31,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -111,45 +109,14 @@ private val TOP_BAR_CONTENT_COLOR
 fun MainContent(
     modifier: Modifier = Modifier,
     navigateTo: (NavDestination) -> Unit = {},
-    hasSelectedDir: Boolean = false,
-    selectDirClick: () -> Unit = {},
-    groupedCalendars: GroupedList<String, UserCalendarListItem>?,
-    addCalendar: () -> Unit = {},
-    calPermsClick: () -> Unit = {},
-    calIsSynced: (Long) -> Boolean,
-    onCalSwitchClick: (Long, Boolean) -> Unit
+    tabs: List<TabNavDestination>
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var actionsExpanded by remember { mutableStateOf(false) }
-    val selectedTab = rememberSaveable { mutableIntStateOf(0) }
-    val tabController = remember { TabNavController(
-        selectedIdx = selectedTab,
-        tabs = listOf(
-            PrimaryTabNavDestinationWithFab(
-                icon = Icons.Default.DateRange,
-                fabActions = NonEmptyList(
-                    first = ExpandableFABAction(Icons.Default.Create, "New blank calendar", addCalendar),
-                    ExpandableFABAction(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /*TODO*/ },
-                    ExpandableFABAction(R.drawable.rounded_upload_file_24, "Import from file") { /*TODO*/ },
-                ),
-                title = "Calendars",
-            ) { modifier ->
-                Calendars(
-                    modifier = modifier,
-                    groupedCalendars = groupedCalendars,
-                    hasSelectedDir = hasSelectedDir,
-                    selectDirClick = selectDirClick,
-                    calPermsClick =  calPermsClick,
-                    calIsSynced = calIsSynced,
-                    onCalSwitchClick = onCalSwitchClick
-                )
-            },
-            PrimaryTabNavDestination(
-                icon = Icons.Default.AccountCircle,
-                title = "Contacts",
-            ) { modifier -> Text("Contacts section", modifier = modifier) },
-        )
-    ) }
+    val tabController = TabNavController(
+        selectedIdx = rememberSaveable { mutableIntStateOf(0) },
+        tabs = tabs
+    )
 
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -160,9 +127,7 @@ fun MainContent(
                 ExpandableFloatingActionButtons(
                     expanded = actionsExpanded,
                     expand = { actionsExpanded = true },
-                    description = "Add/New Calendar",
-                    icon = Icons.Default.Add,
-                    actions = tabWithFab.fabActions
+                    data = tabWithFab.fab
                 )
             }
         },
@@ -344,16 +309,34 @@ private fun <T: TabNavDestination> TabBar(
     }
 }
 
-/** Used in **`ExpandableFloatingActionButtons`** */
-class ExpandableFABAction(
+/** Used in **`ExpandableFloatingActionButtons`**.
+ * @see ExpandableFloatingActionButtons
+ * @param description The overall *description* of all the actions, to show in a `Tooltip`.
+ * @param icon The icon shown in the `FAB` in *collapsed mode*.
+ * @param actions The sub-actions shown in *expanded mode*. They are rendered *from the bottom up*.
+ *                The first **action** in the list will replace the main `FAB` in *expanded mode*.
+ *                The rest of the actions will compose `Small FAB`s above the first `FAB`. */
+// Primary constructor is private to overload constructors with different icon variants.
+class ExpandableFab private constructor(
     val icon: @Composable () -> Unit,
-    val label: String,
-    val onClick: () -> Unit
+    val description: String?,
+    val actions: NonEmptyList<Action>
 ) {
-    constructor(icon: ImageVector, label: String, onClick: () -> Unit):
-            this({ Icon(icon, null) }, label, onClick)
-    constructor(@DrawableRes icon: Int, label: String, onClick: () -> Unit):
-            this({ Icon(painterResource(icon), null) }, label, onClick)
+    constructor(icon: ImageVector, description: String, actions: NonEmptyList<Action>):
+            this({ Icon(icon, description) }, description, actions)
+    constructor(@DrawableRes icon: Int, description: String, actions: NonEmptyList<Action>):
+            this({ Icon(painterResource(icon), description) }, description, actions)
+
+    class Action(
+        val icon: @Composable () -> Unit,
+        val label: String,
+        val onClick: () -> Unit
+    ) {
+        constructor(icon: ImageVector, label: String, onClick: () -> Unit):
+                this({ Icon(icon, null) }, label, onClick)
+        constructor(@DrawableRes icon: Int, label: String, onClick: () -> Unit):
+                this({ Icon(painterResource(icon), null) }, label, onClick)
+    }
 }
 
 /** A `FloatingActionButton` that can be expanded to show a set of multiple *sub actions*.
@@ -374,20 +357,13 @@ class ExpandableFABAction(
  * @param expanded Whether the state of the buttons is in *expanded* or *collapsed mode*.
  * @param expand A function called when the main `FAB` is clicked in *collapsed mode*,
  *               will set the value of **expanded** to `true`.
- * @param description The overall *description* of all the actions to show in a `Tooltip`.
- * @param icon The icon shown in the `FAB` in *collapsed mode*.
- * @param actions The sub-actions shown in *expanded mode*. They are rendered *from the bottom up*.
- *                The first **action** in the list will replace the main `FAB` in *expanded mode*.
- *                The rest of the actions will compose `Small FAB`s above the fist `FAB`.
- * */
+ * @param data The data for the `FloatingActionButton`. */
 @Composable
 private fun ExpandableFloatingActionButtons(
     modifier: Modifier = Modifier,
     expanded: Boolean,
     expand: () -> Unit = {},
-    description: String? = null,
-    icon: ImageVector,
-    actions: NonEmptyList<ExpandableFABAction>
+    data: ExpandableFab
 ) {
     var fabWidth by remember { mutableStateOf(0.dp) }
     val mainFabColor by animateColorAsState(
@@ -404,7 +380,7 @@ private fun ExpandableFloatingActionButtons(
 
     Column(modifier = modifier, horizontalAlignment = Alignment.End) {
         // Sub actions are shown from the bottom up, so it is reversed
-        remember { actions.rest.reversed() }.forEach { action ->
+        remember { data.actions.rest.reversed() }.forEach { action ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
                 ActionLabel(action.label)
                 AnimatedVisibility(visible = expanded, enter = expandIn(), exit = shrinkOut()) {
@@ -420,18 +396,18 @@ private fun ExpandableFloatingActionButtons(
             }
         }
         Row(modifier = Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
-            ActionLabel(actions.first.label)
+            ActionLabel(data.actions.first.label)
             val mainFab = @Composable {
                 FloatingActionButton(
                     containerColor = mainFabColor,
                     // When actions are expanded, the FAB will change to one of the actions
-                    onClick = if (expanded) actions.first.onClick else expand
+                    onClick = if (expanded) data.actions.first.onClick else expand
                 ) {
                     Crossfade(targetState = expanded, label = "Calendars FAB Expanded") { expanded ->
                         if (expanded)
-                            actions.first.icon()
+                            data.actions.first.icon()
                         else
-                            Icon(icon, description)
+                            data.icon()
                     }
                 }
             }
@@ -439,9 +415,9 @@ private fun ExpandableFloatingActionButtons(
             Box(modifier = Modifier.onGloballyPositioned {
                 fabWidth = with(density) { it.size.width.toDp() }
             }) {
-                if (description != null)
+                if (data.description != null)
                     PlainTooltipBox(
-                        tooltipContent = { Text(description) },
+                        tooltipContent = { Text(data.description) },
                         content = mainFab
                     )
                 else
@@ -480,7 +456,7 @@ private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Calendars(
+fun Calendars(
     modifier: Modifier = Modifier,
     hasSelectedDir: Boolean = false,
     selectDirClick: () -> Unit = {},
