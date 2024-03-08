@@ -2,6 +2,25 @@ package me.marti.calprovexample
 
 import androidx.compose.ui.graphics.Color as ComposeColor
 
+/** */
+class NonEmptyList<T>(
+    val first: T,
+    val rest: List<T>
+) {
+    constructor(list: List<T>): this(list[0], list.drop(1))
+    constructor(first: T, vararg rest: T): this(first, rest.asList())
+
+    val size: Int
+        get() = 1 + rest.size
+
+    fun get(index: Int): T {
+        return if (index == 0)
+            first
+        else
+            rest[index]
+    }
+}
+
 data class Color(
     val r: UByte,
     val g: UByte,

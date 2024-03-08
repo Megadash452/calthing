@@ -83,6 +83,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
+import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.R
 import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
@@ -125,8 +126,13 @@ fun MainContent(
     val tabController = remember { TabNavController(
         selectedIdx = selectedTab,
         tabs = listOf(
-            PrimaryTabNavDestination(
+            PrimaryTabNavDestinationWithFab(
                 icon = Icons.Default.DateRange,
+                fabActions = NonEmptyList(
+                    first = ExpandableFABAction(Icons.Default.Create, "New blank calendar", addCalendar),
+                    ExpandableFABAction(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /*TODO*/ },
+                    ExpandableFABAction(R.drawable.rounded_upload_file_24, "Import from file") { /*TODO*/ },
+                ),
                 title = "Calendars",
             ) { modifier ->
                 Calendars(
@@ -150,17 +156,16 @@ fun MainContent(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets.systemBars,
         floatingActionButton = {
-            ExpandableFloatingActionButtons(
-                expanded = actionsExpanded,
-                expand = { actionsExpanded = true },
-                description = "Add/New Calendar",
-                icon = Icons.Default.Add,
-                actions = listOf(
-                    ExpandableFABAction(Icons.Default.Create, "New blank calendar", addCalendar),
-                    ExpandableFABAction(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /*TODO*/ },
-                    ExpandableFABAction(R.drawable.rounded_upload_file_24, "Import from file") { /*TODO*/ },
+            // AnimatedVisibility(visible = tabController.selectedTab is PrimaryTabNavDestinationWithFab) {
+            (tabController.selectedTab as? PrimaryTabNavDestinationWithFab)?.let { tabWithFab ->
+                ExpandableFloatingActionButtons(
+                    expanded = actionsExpanded,
+                    expand = { actionsExpanded = true },
+                    description = "Add/New Calendar",
+                    icon = Icons.Default.Add,
+                    actions = tabWithFab.fabActions
                 )
-            )
+            }
         },
     ) { paddingValues ->
         Column(Modifier.padding(bottom = paddingValues.calculateBottomPadding())) {
@@ -341,7 +346,7 @@ private fun <T: TabNavDestination> TabBar(
 }
 
 /** Used in **`ExpandableFloatingActionButtons`** */
-private class ExpandableFABAction(
+class ExpandableFABAction(
     val icon: @Composable () -> Unit,
     val label: String,
     val onClick: () -> Unit
@@ -383,7 +388,7 @@ private fun ExpandableFloatingActionButtons(
     expand: () -> Unit = {},
     description: String? = null,
     icon: ImageVector,
-    actions: List<ExpandableFABAction>
+    actions: NonEmptyList<ExpandableFABAction>
 ) {
     var fabWidth by remember { mutableStateOf(0.dp) }
     val mainFabColor by animateColorAsState(
@@ -391,9 +396,6 @@ private fun ExpandableFloatingActionButtons(
         label = "Main FAB Container Color Animation"
     )
     val spacing = 12.dp
-    val firstAction = remember { actions.getOrNull(0) ?: throw Exception("Actions must have at least 2 elements") }
-    // Sub actions are shown from the bottom up, so it is reversed
-    val subActions = remember { actions.drop(1).asReversed() }
     @Composable
     fun ActionLabel(text: String) {
         AnimatedVisibility(visible = expanded) {
@@ -402,7 +404,8 @@ private fun ExpandableFloatingActionButtons(
     }
 
     Column(modifier = modifier, horizontalAlignment = Alignment.End) {
-        subActions.forEach { action ->
+        // Sub actions are shown from the bottom up, so it is reversed
+        remember { actions.rest.reversed() }.forEach { action ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
                 ActionLabel(action.label)
                 AnimatedVisibility(visible = expanded, enter = expandIn(), exit = shrinkOut()) {
@@ -418,16 +421,16 @@ private fun ExpandableFloatingActionButtons(
             }
         }
         Row(modifier = Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
-            ActionLabel(firstAction.label)
+            ActionLabel(actions.first.label)
             val mainFab = @Composable {
                 FloatingActionButton(
                     containerColor = mainFabColor,
                     // When actions are expanded, the FAB will change to one of the actions
-                    onClick = if (expanded) firstAction.onClick else expand
+                    onClick = if (expanded) actions.first.onClick else expand
                 ) {
                     Crossfade(targetState = expanded, label = "Calendars FAB Expanded") { expanded ->
                         if (expanded)
-                            firstAction.icon()
+                            actions.first.icon()
                         else
                             Icon(icon, description)
                     }
