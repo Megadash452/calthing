@@ -90,9 +90,8 @@ import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import androidx.compose.ui.graphics.Color as ComposeColor
 
 private const val OUTER_PADDING = 8
-private const val MIDDLE_PADDING = 4
-private const val LIST_ELEVATION = 1
-private const val LIST_ITEM_ELEVATION = 3
+private const val LIST_PADDING = 4
+private const val LIST_ITEM_ELEVATION = 1
 private const val LIST_ITEM_SPACING = 4
 private const val PREVIEW_WIDTH = 300
 
@@ -490,7 +489,7 @@ private fun Calendars(
     calIsSynced: (Long) -> Boolean = { false },
     onCalSwitchClick: (Long, Boolean) -> Unit = { _, _ -> }
 ) {
-    Column(modifier.padding(OUTER_PADDING.dp)) {
+    Column(modifier = modifier) {
         if (!hasSelectedDir) {
             Column(
                 modifier = Modifier.padding(OUTER_PADDING.dp),
@@ -519,46 +518,38 @@ private fun Calendars(
                 )
             }
         } else {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                shape = MaterialTheme.shapes.small,
-                tonalElevation = LIST_ELEVATION.dp,
-                shadowElevation = 5.dp
+            LazyColumn(
+                Modifier
+                    .padding(horizontal = LIST_PADDING.dp).padding(top = LIST_PADDING.dp)
+                    .clip(MaterialTheme.shapes.small),
+                verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp),
+                contentPadding = PaddingValues(bottom = 80.dp)
             ) {
-                LazyColumn(
-                    Modifier
-                        .padding(MIDDLE_PADDING.dp)
-                        .clip(MaterialTheme.shapes.small),
-                    verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp),
-                    contentPadding = PaddingValues(bottom = 64.dp)
-                ) {
-                    groupedCalendars.forEach { (accountName, calGroup) ->
-                        this.stickyHeader {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                tonalElevation = 0.dp,
-                                shape = MaterialTheme.shapes.small,
-                            ) {
-                                Text(
-                                    text = accountName,
-                                    modifier = Modifier
-                                        .padding(2.dp)
-                                        .padding(start = 4.dp),
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    style = MaterialTheme.typography.titleSmall
-                                )
-                            }
-                        }
-                        this.items(calGroup, key = { cal -> cal.id }) { cal ->
-                            CalendarListItem(
-                                cal = cal,
-                                isSynced = calIsSynced(cal.id),
-                                onSwitchClick = { checked -> onCalSwitchClick(cal.id, checked) }
+                groupedCalendars.forEach { (accountName, calGroup) ->
+                    this.stickyHeader {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            tonalElevation = 0.dp,
+                            shape = MaterialTheme.shapes.small,
+                        ) {
+                            Text(
+                                text = accountName,
+                                modifier = Modifier
+                                    .padding(2.dp)
+                                    .padding(start = 4.dp),
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                style = MaterialTheme.typography.titleSmall
                             )
                         }
+                    }
+                    this.items(calGroup, key = { cal -> cal.id }) { cal ->
+                        CalendarListItem(
+                            cal = cal,
+                            isSynced = calIsSynced(cal.id),
+                            onSwitchClick = { checked -> onCalSwitchClick(cal.id, checked) }
+                        )
                     }
                 }
             }
