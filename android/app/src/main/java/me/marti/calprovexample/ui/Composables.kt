@@ -12,15 +12,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PlainTooltipBox
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +37,7 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
-const val OUTER_PADDING = 8
+private const val OUTER_PADDING = 8
 private const val MIDDLE_PADDING = 4
 private const val LIST_ELEVATION = 1
 private const val LIST_ITEM_ELEVATION = 3
@@ -77,7 +78,7 @@ fun Calendars(
                     onclick = selectDirClick
                 )
             }
-            Divider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 2).dp))
+            HorizontalDivider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 2).dp))
         }
 
         if (groupedCalendars == null) {
@@ -104,7 +105,8 @@ fun Calendars(
                     Modifier
                         .padding(MIDDLE_PADDING.dp)
                         .clip(MaterialTheme.shapes.small),
-                    verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp)
+                    verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp),
+                    contentPadding = PaddingValues(bottom = 64.dp)
                 ) {
                     groupedCalendars.forEach { (accountName, calGroup) ->
                         this.stickyHeader {
@@ -139,7 +141,6 @@ fun Calendars(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CalendarListItem(cal: UserCalendarListItem, isSynced: Boolean = false, onSwitchClick: (Boolean) -> Unit = {}) {
     ListItem(
@@ -161,10 +162,9 @@ private fun CalendarListItem(cal: UserCalendarListItem, isSynced: Boolean = fals
         },
         leadingContent = {
             PlainTooltipBox(
-                tooltip = { Text("This calendar is synced") },
+                tooltipContent = { Text("This calendar is synced") },
             ) {
                 Icon(
-                    modifier = Modifier.tooltipAnchor(),
                     imageVector = Icons.Default.DateRange,
                     contentDescription = "Calendars list item",
                     tint = cal.color.toColor()
@@ -187,6 +187,21 @@ fun IconTextButton(modifier: Modifier = Modifier, icon: Painter, text: String, o
         Icon(icon, null, modifier = Modifier.size(18.dp))
         Text(text, modifier.padding(start = 8.dp))
     }
+}
+
+/** The new `TooltipBox` is more verbose than the Plain/RichTooltipBox in the previous version... */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlainTooltipBox(modifier: Modifier = Modifier, tooltipContent: @Composable () -> Unit, content: @Composable () -> Unit) {
+    TooltipBox(
+        modifier = modifier,
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        state = rememberTooltipState(),
+        tooltip = { this.PlainTooltip {
+            tooltipContent()
+        } },
+        content = content
+    )
 }
 
 @Composable

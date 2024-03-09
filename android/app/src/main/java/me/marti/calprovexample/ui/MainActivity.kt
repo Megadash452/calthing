@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.MutableState
@@ -23,7 +26,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import me.marti.calprovexample.BooleanUserPreference
+import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.PreferenceKey
+import me.marti.calprovexample.R
 import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.UserCalendarListItem
@@ -94,12 +99,31 @@ class MainActivity : ComponentActivity() {
         if (getUserCalendars.hasPermission())
             getUserCalendars.runAction()
 
+        val fabs = mapOf(
+            Pair(NavDestination.Calendars.route, ExpandableFab(
+                icon = Icons.Default.Add,
+                description = "Add/New Calendar",
+                actions = NonEmptyList(
+                    first = ExpandableFab.Action(Icons.Default.Create, "New blank calendar") { /* TODO */ },
+                    ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /*TODO*/ },
+                    ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file") { /*TODO*/ },
+                )
+            ))
+        )
+
         this.setContent {
             CalProvExampleTheme {
                 val navController = rememberNavController()
 
                 Scaffold(
                     contentWindowInsets = WindowInsets.systemBars,
+                    floatingActionButton = {
+                        fabs[navController.currentDestination?.route]?.let { fab ->
+                            ExpandableFloatingActionButtons(
+                                // TODO:
+                            )
+                        }
+                    },
                     bottomBar = {
                         NavBar(
                             items = NavDestination.entries,
