@@ -1,6 +1,7 @@
 package me.marti.calprovexample.ui
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
@@ -122,13 +123,18 @@ fun MainContent(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets.systemBars,
         floatingActionButton = {
-            // AnimatedVisibility(visible = tabController.selectedTab is PrimaryTabNavDestinationWithFab) {
-            (tabController.selectedTab as? PrimaryTabNavDestinationWithFab)?.let { tabWithFab ->
-                ExpandableFloatingActionButtons(
-                    expanded = actionsExpanded,
-                    expand = { actionsExpanded = true },
-                    data = tabWithFab.fab
-                )
+            AnimatedContent(
+                targetState = (tabController.selectedTab as? PrimaryTabNavDestinationWithFab)?.fab,
+                label = "FAB transition animation"
+            ) { fab ->
+                if (fab != null) {
+                    ExpandableFloatingActionButtons(
+                        expanded = actionsExpanded,
+                        expand = { actionsExpanded = true },
+                        collapse = { actionsExpanded = false },
+                        data = fab
+                    )
+                }
             }
         },
     ) { paddingValues ->
@@ -357,12 +363,15 @@ class ExpandableFab private constructor(
  * @param expanded Whether the state of the buttons is in *expanded* or *collapsed mode*.
  * @param expand A function called when the main `FAB` is clicked in *collapsed mode*,
  *               will set the value of **expanded** to `true`.
+ * @param collapse A function called when an Action Button is clicked in *expanded mode*,
+ *                 will set the value of **expanded** to `false`.
  * @param data The data for the `FloatingActionButton`. */
 @Composable
 private fun ExpandableFloatingActionButtons(
     modifier: Modifier = Modifier,
     expanded: Boolean,
     expand: () -> Unit = {},
+    collapse: () -> Unit = {},
     data: ExpandableFab
 ) {
     var fabWidth by remember { mutableStateOf(0.dp) }
@@ -388,7 +397,10 @@ private fun ExpandableFloatingActionButtons(
                         SmallFloatingActionButton(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             contentColor = MaterialTheme.colorScheme.primary,
-                            onClick = action.onClick,
+                            onClick = {
+                                collapse()
+                                action.onClick()
+                            },
                             content = action.icon
                         )
                     }
@@ -401,7 +413,11 @@ private fun ExpandableFloatingActionButtons(
                 FloatingActionButton(
                     containerColor = mainFabColor,
                     // When actions are expanded, the FAB will change to one of the actions
-                    onClick = if (expanded) data.actions.first.onClick else expand
+                    onClick = if (expanded) { {
+                        collapse()
+                        data.actions.first.onClick()
+                    } } else
+                        expand
                 ) {
                     Crossfade(targetState = expanded, label = "Calendars FAB Expanded") { expanded ->
                         if (expanded)
@@ -495,11 +511,9 @@ fun Calendars(
             }
         } else {
             LazyColumn(
-                Modifier
-                    .padding(horizontal = LIST_PADDING.dp).padding(top = LIST_PADDING.dp)
-                    .clip(MaterialTheme.shapes.small),
+                Modifier.padding(top = LIST_PADDING.dp),
                 verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp),
-                contentPadding = PaddingValues(bottom = 80.dp)
+                contentPadding = PaddingValues(bottom = 80.dp, start = LIST_PADDING.dp, end = LIST_PADDING.dp)
             ) {
                 groupedCalendars.forEach { (accountName, calGroup) ->
                     this.stickyHeader {
@@ -612,9 +626,7 @@ fun PlainTooltipBox(modifier: Modifier = Modifier, tooltipContent: @Composable (
         modifier = modifier,
         positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
         state = rememberTooltipState(),
-        tooltip = { this.PlainTooltip {
-            tooltipContent()
-        } },
+        tooltip = { this.PlainTooltip(content = tooltipContent) },
         content = content
     )
 }
