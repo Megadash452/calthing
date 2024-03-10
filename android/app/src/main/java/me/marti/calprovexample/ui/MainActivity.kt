@@ -8,6 +8,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -18,12 +19,16 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.NonEmptyList
@@ -99,6 +104,7 @@ class MainActivity : ComponentActivity() {
         if (getUserCalendars.hasPermission())
             getUserCalendars.runAction()
 
+        // FABs can be placed on the content of each navigation destination.
         val fabs = mapOf(
             Pair(NavDestination.Calendars.route, ExpandableFab(
                 icon = Icons.Default.Add,
@@ -108,33 +114,43 @@ class MainActivity : ComponentActivity() {
                     ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /*TODO*/ },
                     ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file") { /*TODO*/ },
                 )
-            ))
+            )),
         )
 
         this.setContent {
             CalProvExampleTheme {
+                var actionsExpanded by remember { mutableStateOf(false) }
                 val navController = rememberNavController()
+                val navBackStack by navController.currentBackStackEntryAsState()
 
                 Scaffold(
                     contentWindowInsets = WindowInsets.systemBars,
                     floatingActionButton = {
-                        fabs[navController.currentDestination?.route]?.let { fab ->
-                            ExpandableFloatingActionButtons(
-                                // TODO:
-                            )
+                        AnimatedContent(
+                            targetState = navBackStack?.destination?.route,
+                            label = "FAB transition animations"
+                        ) { dest ->
+                            fabs[dest]?.let { fab ->
+                                ExpandableFloatingActionButtons(
+                                    expanded = actionsExpanded,
+                                    expand = { actionsExpanded = true },
+                                    data = fab
+                                )
+                            }
                         }
                     },
                     bottomBar = {
                         NavBar(
                             items = NavDestination.entries,
-                            controller = navController
+                            controller = navController,
+                            onClick = { actionsExpanded = false }
                         )
                     }
                 ) { paddingValues ->
                     NavHost(
-                        navController,
+                        modifier = Modifier.padding(paddingValues),
+                        navController = navController,
                         startDestination = NavDestination.entries[0].route,
-                        modifier = Modifier.padding(paddingValues)
                     ) {
                         this.composable(NavDestination.Calendars.route) {
                             Calendars(
@@ -154,20 +170,21 @@ class MainActivity : ComponentActivity() {
                             Settings(
                                 modifier = Modifier.fillMaxSize(),
                                 settings = listOf(
-                                { BooleanSetting(
-                                    name = "Fragment Calendars",
-                                    summary = "Store data about each Calendar in a separate .ics file",
-                                    value = fragmentCals.value ?: false,
-                                    onClick = { checked -> fragmentCals.value = checked }
-                                ) },
-                                { DirSetting(
-                                    name = "Syncing Directory",
-                                    value = this@MainActivity.syncDir.value,
-                                    selectClick = { this@MainActivity.selectSyncDir() }
-                                ) }
-                            ))
+                                    { BooleanSetting(
+                                        name = "Fragment Calendars",
+                                        summary = "Store data about each Calendar in a separate .ics file",
+                                        value = fragmentCals.value ?: false,
+                                        onClick = { checked -> fragmentCals.value = checked }
+                                    ) },
+                                    { DirSetting(
+                                        name = "Syncing Directory",
+                                        value = this@MainActivity.syncDir.value,
+                                        selectClick = { this@MainActivity.selectSyncDir() }
+                                    ) }
+                                ))
                         }
                     }
+                    ExpandedFabBackgroundOverlay(expanded = actionsExpanded) { actionsExpanded = false }
                 }
                 WithCalendarPermission.RationaleDialog()
             }

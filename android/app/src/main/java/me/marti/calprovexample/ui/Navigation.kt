@@ -31,7 +31,8 @@ enum class NavDestination(val icon: ImageVector) {
 fun NavBar(
     modifier: Modifier = Modifier,
     items: List<NavDestination> = NavDestination.entries,
-    controller: NavController? = null
+    controller: NavController? = null,
+    onClick: () -> Unit = {}
 ) {
     val backStack by controller?.currentBackStackEntryAsState() ?: remember { mutableStateOf(null) }
 
@@ -48,6 +49,7 @@ fun NavBar(
                         this.restoreState = true
                         this.launchSingleTop = true
                     }
+                    onClick()
                 },
             )
         }
