@@ -53,7 +53,8 @@ class TabNavController<out T: TabNavDestination>(
 }
 
 enum class NavDestination {
-    Main, Settings, Debug;
+    Main, Settings, Debug,
+    NewCalendar;
 
     /** convert the user-readable **title** into a path segment string for NavHost. */
     val route: String

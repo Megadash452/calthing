@@ -24,6 +24,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import me.marti.calprovexample.AllData
 import me.marti.calprovexample.BooleanUserPreference
+import me.marti.calprovexample.Color
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.PreferenceKey
 import me.marti.calprovexample.R
@@ -31,6 +32,7 @@ import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.getAppPreferences
+import me.marti.calprovexample.newCalendar
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 
@@ -97,39 +99,39 @@ class MainActivity : ComponentActivity() {
         if (getUserCalendars.hasPermission())
             getUserCalendars.runAction()
 
-        val tabs = listOf(
-            PrimaryTabNavDestinationWithFab(
-                icon = Icons.Default.DateRange,
-                title = "Calendars",
-                fab = ExpandableFab(
-                    icon = Icons.Default.Add,
-                    description = "Add/New Calendar",
-                    actions = NonEmptyList(
-                        first = ExpandableFab.Action(Icons.Default.Create, "New blank calendar") { /* TODO */ },
-                        ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /*TODO*/ },
-                        ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file") { /*TODO*/ },
-                    )
-                ),
-            ) { modifier ->
-                Calendars(
-                    modifier = modifier,
-                    groupedCalendars = userCalendars.value,
-                    hasSelectedDir = syncDir.value != null,
-                    selectDirClick = { this.selectSyncDir() },
-                    calPermsClick =  { getUserCalendars.runAction() },
-                    calIsSynced = { id -> syncedCals.contains(id) },
-                    onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) }
-                )
-            },
-            PrimaryTabNavDestination(
-                icon = Icons.Default.AccountCircle,
-                title = "Contacts",
-            ) { modifier -> Text("Contacts section", modifier = modifier) },
-        )
-
         this.setContent {
             CalProvExampleTheme {
                 val navController = rememberNavController()
+                val tabs = remember { listOf(
+                    PrimaryTabNavDestinationWithFab(
+                        icon = Icons.Default.DateRange,
+                        title = "Calendars",
+                        fab = ExpandableFab(
+                            icon = Icons.Default.Add,
+                            description = "Add/New Calendar",
+                            actions = NonEmptyList(
+                                first = ExpandableFab.Action(Icons.Default.Create, "New blank calendar")
+                                    { navController.navigate(NavDestination.NewCalendar.route) },
+                                ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /*TODO*/ },
+                                ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file") { /*TODO*/ },
+                            )
+                        ),
+                    ) { modifier ->
+                        Calendars(
+                            modifier = modifier,
+                            groupedCalendars = userCalendars.value,
+                            hasSelectedDir = syncDir.value != null,
+                            selectDirClick = { this.selectSyncDir() },
+                            calPermsClick =  { getUserCalendars.runAction() },
+                            calIsSynced = { id -> syncedCals.contains(id) },
+                            onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) }
+                        )
+                    },
+                    PrimaryTabNavDestination(
+                        icon = Icons.Default.AccountCircle,
+                        title = "Contacts",
+                    ) { modifier -> Text("Contacts section", modifier = modifier) },
+                ) }
 
                 NavHost(navController, startDestination = NavDestination.Main.route) {
                     this.composable(NavDestination.Main.route) {
@@ -163,10 +165,30 @@ class MainActivity : ComponentActivity() {
                             data = data,
                         )
                     }
+
+                    this.composable(NavDestination.NewCalendar.route) {
+                        NewCalendarAction(
+                            navUpClick = { navController.navigateUp() },
+                            submit = { name, color ->
+                                this@MainActivity.newCalendarName = name
+                                this@MainActivity.newCalendarColor = color
+                                this@MainActivity.newCalendar.runAction()
+                                navController.navigateUp()
+                            }
+                        )
+                    }
                 }
                 WithCalendarPermission.RationaleDialog()
             }
         }
+    }
+
+    // TODO: find better way of passing arguments to WithCalendarPermission's action
+    private var newCalendarName = ""
+    private var newCalendarColor = Color(0)
+    private val newCalendar = withCalendarPermission {
+        newCalendar(this.baseContext, this.newCalendarName, this.newCalendarColor)
+        this.getUserCalendars.runAction()
     }
 
     private fun selectSyncDir() {

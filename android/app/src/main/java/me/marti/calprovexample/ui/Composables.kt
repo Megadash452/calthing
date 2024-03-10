@@ -17,6 +17,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -88,7 +89,7 @@ import me.marti.calprovexample.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import androidx.compose.ui.graphics.Color as ComposeColor
 
-private const val OUTER_PADDING = 8
+const val OUTER_PADDING = 8
 private const val LIST_PADDING = 4
 private const val LIST_ITEM_ELEVATION = 1
 private const val LIST_ITEM_SPACING = 4
@@ -481,12 +482,18 @@ fun Calendars(
     calIsSynced: (Long) -> Boolean = { false },
     onCalSwitchClick: (Long, Boolean) -> Unit = { _, _ -> }
 ) {
+    @Composable
+    fun InfoColumn(content: @Composable ColumnScope.() -> Unit) {
+        Column(
+            modifier = Modifier.padding(OUTER_PADDING.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            content = content
+        )
+    }
+
     Column(modifier = modifier) {
         if (!hasSelectedDir) {
-            Column(
-                modifier = Modifier.padding(OUTER_PADDING.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
+            InfoColumn {
                 Text("Please select a directory where to sync Calendars and Contacts.")
                 IconTextButton(
                     icon = painterResource(R.drawable.round_folder_24),
@@ -498,16 +505,18 @@ fun Calendars(
         }
 
         if (groupedCalendars == null) {
-            Column(
-                modifier = Modifier.padding(OUTER_PADDING.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
+            InfoColumn {
                 Text("Please allow ${stringResource(R.string.app_name)} to read and write yo your device's calendar")
                 IconTextButton(
                     icon = painterResource(R.drawable.outline_sync_24),
                     text = "Sync",
                     onclick = calPermsClick
                 )
+            }
+        } else if (groupedCalendars.isEmpty()) {
+            InfoColumn {
+                Text("There are currently no calendars.")
+                Text("Try importing one by clicking the \"Add\" Button.")
             }
         } else {
             LazyColumn(

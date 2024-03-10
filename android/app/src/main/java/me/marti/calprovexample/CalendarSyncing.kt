@@ -1,18 +1,24 @@
 package me.marti.calprovexample
 
+import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.provider.CalendarContract
+import android.widget.Toast
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.ui.graphics.toArgb
 import androidx.loader.content.CursorLoader
-import kotlin.enums.EnumEntries
+
+const val ACCOUNT_TYPE = "marti.CalProv"
+const val ACCOUNT_NAME = "myuser"
 
 /** Outputs a list of all calendars that are synced on the user has on the device with the calendar provider. */
 fun userCalendars(context: Context): List<UserCalendarListItem>? {
     val cur = context.getCursor(
-        CalendarContract.Calendars.CONTENT_URI, UserCalendarListItem.Projection
+        CalendarContract.Calendars.CONTENT_URI, UserCalendarListItem.Projection,
+        "((${CalendarContract.Calendars.ACCOUNT_TYPE} = ?))", arrayOf("marti.CalProv")
     ) ?: return null
 
     val result = List(cur.count) {
@@ -48,6 +54,19 @@ data class UserCalendarListItem(
             }
         }
     }
+}
+
+fun newCalendar(context: Context, name: String, color: Color) {
+    val newCalUri = context.contentResolver.insert(asSyncAdapter(CalendarContract.Calendars.CONTENT_URI), ContentValues().apply {
+        this.put(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
+        this.put(CalendarContract.Calendars.ACCOUNT_TYPE, ACCOUNT_TYPE)
+        this.put(CalendarContract.Calendars.NAME, name)
+        this.put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, name)
+        this.put(CalendarContract.Calendars.CALENDAR_COLOR, color.toColor().toArgb())
+        this.put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, 1)
+        this.put(CalendarContract.Calendars.OWNER_ACCOUNT, ACCOUNT_NAME)
+    })
+    Toast.makeText(context, "${newCalUri}", Toast.LENGTH_SHORT).show()
 }
 
 class AllData(context: Context) {
@@ -146,10 +165,10 @@ private fun Context.getCursor(uri: Uri, projection: QueryProjection, selection: 
     }
 }
 
-fun asSyncAdapter(uri: Uri, accName: String, accType: String): Uri {
+fun asSyncAdapter(uri: Uri): Uri {
     return uri.buildUpon()
         .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
-        .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, accName)
-        .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, accType)
+        .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
+        .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, ACCOUNT_TYPE)
         .build()
 }
