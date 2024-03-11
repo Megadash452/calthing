@@ -15,8 +15,11 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.Text
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
@@ -102,43 +105,53 @@ class MainActivity : ComponentActivity() {
         this.setContent {
             CalProvExampleTheme {
                 val navController = rememberNavController()
-                val tabs = remember { listOf(
-                    PrimaryTabNavDestinationWithFab(
-                        icon = Icons.Default.DateRange,
-                        title = "Calendars",
-                        fab = ExpandableFab(
-                            icon = Icons.Default.Add,
-                            description = "Add/New Calendar",
-                            actions = NonEmptyList(
-                                first = ExpandableFab.Action(Icons.Default.Create, "New blank calendar")
-                                    { navController.navigate(NavDestination.NewCalendar.route) },
-                                ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /*TODO*/ },
-                                ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file") { /*TODO*/ },
-                            )
-                        ),
-                    ) { modifier ->
-                        Calendars(
-                            modifier = modifier,
-                            groupedCalendars = userCalendars.value,
-                            hasSelectedDir = syncDir.value != null,
-                            selectDirClick = { this.selectSyncDir() },
-                            calPermsClick =  { getUserCalendars.runAction() },
-                            calIsSynced = { id -> syncedCals.contains(id) },
-                            onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) }
-                        )
-                    },
-                    PrimaryTabNavDestination(
-                        icon = Icons.Default.AccountCircle,
-                        title = "Contacts",
-                    ) { modifier -> Text("Contacts section", modifier = modifier) },
-                ) }
 
                 NavHost(navController, startDestination = NavDestination.Main.route) {
                     this.composable(NavDestination.Main.route) {
-                        MainContent(
-                            navigateTo = { dest -> navController.navigate(dest.route) },
-                            tabs = tabs,
-                        )
+                        // Open a secondary item in this screen, such as the FAB or a dialog
+                        var openItem by rememberSaveable { mutableStateOf("") }
+                        MainContent(navigateTo = { dest -> navController.navigate(dest.route) }) {
+                            this.tabWithFab(
+                                icon = Icons.Default.DateRange,
+                                title = "Calendars",
+                                fab = ExpandableFab(
+                                    icon = Icons.Default.Add,
+                                    description = "Add/New Calendar",
+                                    actions = NonEmptyList(
+                                        first = ExpandableFab.Action(Icons.Default.Create, "New blank calendar")
+                                            { openItem = "newCalendar" },
+                                        ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /* TODO */ },
+                                        ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file") { /* TODO */ },
+                                    )
+                                ),
+                            ) { modifier ->
+                                Calendars(
+                                    modifier = modifier,
+                                    groupedCalendars = userCalendars.value,
+                                    hasSelectedDir = syncDir.value != null,
+                                    selectDirClick = { this@MainActivity.selectSyncDir() },
+                                    calPermsClick =  { getUserCalendars.runAction() },
+                                    calIsSynced = { id -> syncedCals.contains(id) },
+                                    onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) }
+                                )
+                            }
+                            
+                            this.tab(icon = Icons.Default.AccountCircle, title = "Contacts") { modifier ->
+                                Text("Contacts section", modifier = modifier)
+                            }
+                        }
+
+                        when (openItem) {
+                            "newCalendar" -> NewCalendarAction(
+                                navUpClick = { openItem = "" },
+                                submit = { name, color ->
+                                    this@MainActivity.newCalendarName = name
+                                    this@MainActivity.newCalendarColor = color
+                                    this@MainActivity.newCalendar.runAction()
+                                    navController.navigateUp()
+                                }
+                            )
+                        }
                     }
                     this.composable(NavDestination.Settings.route) {
                         SettingsContent(
@@ -163,18 +176,6 @@ class MainActivity : ComponentActivity() {
                         DebugContent(
                             navUpClick = { navController.navigateUp() },
                             data = data,
-                        )
-                    }
-
-                    this.composable(NavDestination.NewCalendar.route) {
-                        NewCalendarAction(
-                            navUpClick = { navController.navigateUp() },
-                            submit = { name, color ->
-                                this@MainActivity.newCalendarName = name
-                                this@MainActivity.newCalendarColor = color
-                                this@MainActivity.newCalendar.runAction()
-                                navController.navigateUp()
-                            }
                         )
                     }
                 }

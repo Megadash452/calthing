@@ -27,9 +27,12 @@ data class Color(
     val b: UByte
 ) {
     /** Converts the color to a Hexadecimal representation of its RGB values.
-     * The string always starts with a `#`.*/
-    override fun toString(): String {
-        var hex = "#"
+     * The string always starts with a `#` for printing.*/
+    override fun toString(): String = "#" + this.toHex()
+
+    /** Converts the color to a Hexadecimal representation of its RGB values. */
+    fun toHex(): String {
+        var hex = ""
         hex += this.r.toString(16).padStart(2, '0')
         hex += this.g.toString(16).padStart(2, '0')
         hex += this.b.toString(16).padStart(2, '0')
@@ -75,6 +78,11 @@ fun Color(hex: String): Color {
 fun Color(i: Int): Color {
     // Drop the 2 characters of the Alpha channel.
     return Color(hexString(i).drop(2))
+}
+
+/** Creates a color from the `Color` class of androidx. */
+fun Color(color: androidx.compose.ui.graphics.Color): Color {
+    return Color(color.value.toInt())
 }
 
 /** Convert an integer to a string of its hexadecimal representation.

@@ -17,12 +17,12 @@ open class TabNavDestination(
 
 /** Data of a Primary Tab, with the **icon** above **title**. */
 open class PrimaryTabNavDestination(
-    val icon: ImageVector,
+    val icon: @Composable () -> Unit,
     title: String,
     content: @Composable (Modifier) -> Unit,
 ) : TabNavDestination(title, content)
 class PrimaryTabNavDestinationWithFab(
-    icon: ImageVector,
+    icon: @Composable () -> Unit,
     title: String,
     val fab: ExpandableFab,
     content: @Composable (Modifier) -> Unit,
@@ -53,8 +53,7 @@ class TabNavController<out T: TabNavDestination>(
 }
 
 enum class NavDestination {
-    Main, Settings, Debug,
-    NewCalendar;
+    Main, Settings, Debug;
 
     /** convert the user-readable **title** into a path segment string for NavHost. */
     val route: String

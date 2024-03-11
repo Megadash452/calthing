@@ -102,22 +102,36 @@ private val TOP_BAR_CONTENT_COLOR
     @Composable get() = MaterialTheme.colorScheme.primary
 
 
-/** The `Main` content of the app.
- * Contains the scaffolding with the `TopBar` and the `Calendars` and `Contacts` components.
+/** The `Main` screen of the App. Contains the necessary `Scaffold`.
+ * Can show different **content** but this keeps it consistent.
  *
- * @param navigateTo The logic behind the navigation. Takes in a *destination* to navigate to. */
+ * The different **content** are separated into *tabs*.
+ * Add a **tab** for a content using the DSL **`MainContentScope`**.
+ *
+ * Example:
+ * ```kt
+ * MainContent(...) {
+ *     this.tab(title = "Tab1") { modifier -> Text("Hi i i :3") }
+ * }
+ * ```
+ *
+ * @param navigateTo The logic behind the navigation. Takes in a *destination* to navigate to.
+ * @see MainContentScope*/
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainContent(
     modifier: Modifier = Modifier,
     navigateTo: (NavDestination) -> Unit = {},
-    tabs: List<TabNavDestination>
+    content: MainContentScope.() -> Unit
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var actionsExpanded by remember { mutableStateOf(false) }
     val tabController = TabNavController(
         selectedIdx = rememberSaveable { mutableIntStateOf(0) },
-        tabs = tabs
+        tabs = remember {
+            // Build the set of tabs that the caller wants to compose
+            MainContentScope().apply { this.content() }.tabs
+        }
     )
 
     Scaffold(
@@ -157,6 +171,43 @@ fun MainContent(
             tabController.SelectedContent()
         }
         ExpandedFabBackgroundOverlay(expanded = actionsExpanded) { actionsExpanded = false }
+    }
+}
+/** A DSL to add **content** to the `MainContent` composable.
+ * Use one of the public `tab` functions to add the `Tab` data and the *content*.
+ *
+ * **Parameters** for the functions:
+ *  - ***`title`***: (*Required*) The title of the `Tab` in the `TopBar`.
+ *  - ***`content`***: (*Required*) The content that will be shown when this tab is selected.
+ *  - ***`icon`***: (*Optional*) An icon that will appear next to (or above) the *title* in the `Tab`.
+ *  - ***`fab`***: (*Optional*) A `FloatingActionButton` that will render with the *content* of this tab.
+ *                 Must call **`this.tabWithFab()`** for this parameter.
+ *
+ * @see MainContent */
+class MainContentScope {
+    internal var tabs: MutableList<TabNavDestination> = mutableListOf()
+
+    // Add tab without an icon
+    fun tab(title: String, content: @Composable (Modifier) -> Unit) {
+        this.tabs.add(TabNavDestination(title, content))
+    }
+
+    // Add tabs with icons
+    fun tab(icon: ImageVector, title: String, content: @Composable (Modifier) -> Unit) =
+        this.tab({ Icon(icon, null) }, title, content)
+    fun tab(@DrawableRes icon: Int, title: String, content: @Composable (Modifier) -> Unit) =
+        this.tab({ Icon(painterResource(icon), null) }, title, content)
+    fun tab(icon: @Composable () -> Unit, title: String, content: @Composable (Modifier) -> Unit) {
+        this.tabs.add(PrimaryTabNavDestination(icon, title, content))
+    }
+
+    // Add Tab with a FloatingActionButton
+    fun tabWithFab(icon: ImageVector, title: String, fab: ExpandableFab, content: @Composable (Modifier) -> Unit) =
+        this.tabWithFab({ Icon(icon, null) }, title, fab, content)
+    fun tabWithFab(@DrawableRes icon: Int, title: String, fab: ExpandableFab, content: @Composable (Modifier) -> Unit) =
+        this.tabWithFab({ Icon(painterResource(icon), null) }, title, fab, content)
+    fun tabWithFab(icon: @Composable () -> Unit, title: String, fab: ExpandableFab, content: @Composable (Modifier) -> Unit) {
+        this.tabs.add(PrimaryTabNavDestinationWithFab(icon, title, fab, content))
     }
 }
 
@@ -288,7 +339,7 @@ private fun <T: TabNavDestination> TabBar(
         // Is not NULL only when tabs are PrimaryTabNavDestination
         val getIcon: (@Composable (T) -> Unit)? =
             if (controller.tabs.all { it is PrimaryTabNavDestination }) { tab: T ->
-                Icon((tab as PrimaryTabNavDestination).icon, null, modifier = Modifier.size(24.dp))
+                (tab as PrimaryTabNavDestination).icon
             } else {
                 null
             }
@@ -681,8 +732,8 @@ fun TopBarPreview() {
             TopBar(
                 title = "Title",
                 tabController = TabNavController(tabs = listOf(
-                    PrimaryTabNavDestination(Icons.Default.DateRange, "Calendars") {},
-                    PrimaryTabNavDestination(Icons.Default.AccountCircle, "Contacts") {}
+                    PrimaryTabNavDestination({ Icon(Icons.Default.DateRange, null) }, "Calendars") {},
+                    PrimaryTabNavDestination({ Icon(Icons.Default.AccountCircle, null) }, "Contacts") {}
                 ))
             )
         }
