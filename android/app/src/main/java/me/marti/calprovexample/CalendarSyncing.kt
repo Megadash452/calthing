@@ -1,10 +1,12 @@
 package me.marti.calprovexample
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.provider.CalendarContract
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -23,13 +25,23 @@ fun userCalendars(context: Context): List<UserCalendarListItem>? {
 
     val result = List(cur.count) {
         cur.moveToNext()
-        UserCalendarListItem(
-            id = cur.getLong(UserCalendarListItem.Projection.ID.ordinal),
-            name = cur.getString(UserCalendarListItem.Projection.DISPLAY_NAME.ordinal),
-            accountName = cur.getString(UserCalendarListItem.Projection.ACCOUNT_NAME.ordinal),
-            // The stored color is a 32bit ARGB, but the alpha is ignored.
-            color = Color(cur.getInt(UserCalendarListItem.Projection.COLOR.ordinal)),
-        )
+        try {
+            UserCalendarListItem(
+                id = cur.getLong(UserCalendarListItem.Projection.ID.ordinal),
+                name = cur.getString(UserCalendarListItem.Projection.DISPLAY_NAME.ordinal),
+                accountName = cur.getString(UserCalendarListItem.Projection.ACCOUNT_NAME.ordinal),
+                // The stored color is a 32bit ARGB, but the alpha is ignored.
+                color = Color(cur.getInt(UserCalendarListItem.Projection.COLOR.ordinal)),
+            )
+        } catch (e: Exception) {
+            Log.e(null, "Error querying calendar: ${e.message}")
+            UserCalendarListItem(
+                id = cur.getLong(UserCalendarListItem.Projection.ID.ordinal),
+                name = "Error: ${e.message}",
+                accountName = "",
+                color = Color(0)
+            )
+        }
     }
 
     cur.close()
@@ -58,15 +70,54 @@ data class UserCalendarListItem(
 
 fun newCalendar(context: Context, name: String, color: Color) {
     val newCalUri = context.contentResolver.insert(asSyncAdapter(CalendarContract.Calendars.CONTENT_URI), ContentValues().apply {
+        // Required
         this.put(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
         this.put(CalendarContract.Calendars.ACCOUNT_TYPE, ACCOUNT_TYPE)
-        this.put(CalendarContract.Calendars.NAME, name)
+        this.put(CalendarContract.Calendars.NAME, name) // Don't really know what this is for
         this.put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, name)
         this.put(CalendarContract.Calendars.CALENDAR_COLOR, color.toColor().toArgb())
-        this.put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, 1)
+        this.put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.CAL_ACCESS_OWNER)
         this.put(CalendarContract.Calendars.OWNER_ACCOUNT, ACCOUNT_NAME)
+        // Not required, but recommended
+        this.put(CalendarContract.Calendars.SYNC_EVENTS, 1)
+        this.put(CalendarContract.Calendars.CALENDAR_TIME_ZONE, "America/New_York") // TODO: get value from rust library
+        this.put(CalendarContract.Calendars.ALLOWED_REMINDERS,
+            "${CalendarContract.Reminders.METHOD_DEFAULT}," +
+            "${CalendarContract.Reminders.METHOD_ALERT}," +
+            "${CalendarContract.Reminders.METHOD_ALARM}"
+        )
+        this.put(CalendarContract.Calendars.ALLOWED_AVAILABILITY,
+            "${CalendarContract.Events.AVAILABILITY_BUSY}," +
+            "${CalendarContract.Events.AVAILABILITY_FREE}," +
+            "${CalendarContract.Events.AVAILABILITY_TENTATIVE}"
+        )
+        this.put(CalendarContract.Calendars.ALLOWED_ATTENDEE_TYPES, CalendarContract.Attendees.TYPE_NONE)
     })
-    Toast.makeText(context, "${newCalUri}", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, "$newCalUri", Toast.LENGTH_SHORT).show()
+}
+
+fun deleteCalendar(context: Context, id: Long) {
+    // Events are automatically deleted with the calendar
+    // TODO: show confirmation to delete
+    // TODO: show snack-bar with undo button
+    // TODO: delete only if sync adapter (UI will not show button if cant delete)
+    val cursor = context.getCursor(
+        ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, id),
+        UserCalendarListItem.Projection,
+    )
+    val calName = if (cursor == null)
+        "UNKNOWN"
+    else {
+        cursor.moveToNext()
+        cursor.getString(UserCalendarListItem.Projection.DISPLAY_NAME.ordinal)
+    }
+
+    context.contentResolver.delete(
+        asSyncAdapter(ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, id)),
+        null, null
+    )
+
+    Toast.makeText(context, "Deleted Calendar \"$calName\"", Toast.LENGTH_SHORT).show()
 }
 
 class AllData(context: Context) {

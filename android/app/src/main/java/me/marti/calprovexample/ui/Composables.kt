@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,7 +35,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -531,7 +534,8 @@ fun Calendars(
     groupedCalendars: GroupedList<String, UserCalendarListItem>?,
     calPermsClick: () -> Unit = {},
     calIsSynced: (Long) -> Boolean = { false },
-    onCalSwitchClick: (Long, Boolean) -> Unit = { _, _ -> }
+    onCalSwitchClick: (Long, Boolean) -> Unit = { _, _ -> },
+    deleteCalendar: (Long) -> Unit = {}
 ) {
     @Composable
     fun InfoColumn(content: @Composable ColumnScope.() -> Unit) {
@@ -570,6 +574,8 @@ fun Calendars(
                 Text("Try importing one by clicking the \"Add\" Button.")
             }
         } else {
+            // Items in this list can be expanded to show more actions. Value is the id of the expanded item.
+            var expandedItem: Long? by rememberSaveable { mutableStateOf(null) }
             LazyColumn(
                 Modifier.padding(top = LIST_PADDING.dp),
                 verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp),
@@ -598,7 +604,13 @@ fun Calendars(
                         CalendarListItem(
                             cal = cal,
                             isSynced = calIsSynced(cal.id),
-                            onSwitchClick = { checked -> onCalSwitchClick(cal.id, checked) }
+                            expanded = expandedItem == cal.id,
+                            expandedToggle = {
+                                // if user clicks on the expandedItem, it will be collapsed
+                                expandedItem = if (expandedItem == cal.id) null else cal.id
+                            },
+                            onSwitchClick = { checked -> onCalSwitchClick(cal.id, checked) },
+                            deleteClick = { deleteCalendar(cal.id) }
                         )
                     }
                 }
@@ -608,22 +620,45 @@ fun Calendars(
 }
 
 @Composable
-private fun CalendarListItem(cal: UserCalendarListItem, isSynced: Boolean = false, onSwitchClick: (Boolean) -> Unit = {}) {
+private fun CalendarListItem(
+    cal: UserCalendarListItem,
+    isSynced: Boolean = false,
+    expanded: Boolean = false,
+    expandedToggle: () -> Unit = {},
+    onSwitchClick: (Boolean) -> Unit = {},
+    deleteClick: () -> Unit = {},
+) {
     ListItem(
         modifier = Modifier
             .clip(MaterialTheme.shapes.small)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .clickable(onClick = expandedToggle),
         tonalElevation = LIST_ITEM_ELEVATION.dp,
         headlineContent = { Text(cal.name) },
         supportingContent = {
-            // Don't show any status if the user has not selected this calendar for syncing
-            if (isSynced) {
-                Text(
-                    "Status...",
-                    fontWeight = FontWeight.Light,
-                    color = MaterialTheme.colorScheme.secondary,
-                    style = MaterialTheme.typography.labelSmall,
-                )
+            Column {
+                // Don't show any status if the user has not selected this calendar for syncing
+                if (isSynced) {
+                    Text(
+                        "Status...",
+                        fontWeight = FontWeight.Light,
+                        color = MaterialTheme.colorScheme.secondary,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                AnimatedVisibility(visible = expanded) {
+                    Spacer(Modifier.size(4.dp))
+                    HorizontalDivider()
+                    Row {
+                        // TODO: less padding on these buttons
+                        IconButton(onClick = { /*TODO*/ }) {
+                            Icon(Icons.Default.Create, "Edit Calendar")
+                        }
+                        IconButton(onClick = deleteClick) {
+                            Icon(Icons.Default.Delete, "Delete Calendar", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
             }
         },
         leadingContent = {

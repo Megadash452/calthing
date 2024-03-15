@@ -34,6 +34,7 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.UserCalendarListItem
+import me.marti.calprovexample.deleteCalendar
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.newCalendar
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
@@ -132,7 +133,11 @@ class MainActivity : ComponentActivity() {
                                     selectDirClick = { this@MainActivity.selectSyncDir() },
                                     calPermsClick =  { getUserCalendars.runAction() },
                                     calIsSynced = { id -> syncedCals.contains(id) },
-                                    onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) }
+                                    onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) },
+                                    deleteCalendar = { id ->
+                                        this@MainActivity.deleteCalendarId = id
+                                        this@MainActivity.deleteCalendar.runAction()
+                                    }
                                 )
                             }
                             
@@ -189,6 +194,14 @@ class MainActivity : ComponentActivity() {
     private var newCalendarColor = Color(0)
     private val newCalendar = withCalendarPermission {
         newCalendar(this.baseContext, this.newCalendarName, this.newCalendarColor)
+        // TODO: add calendar to userCalendars without reQuerying
+        this.getUserCalendars.runAction()
+    }
+
+    private var deleteCalendarId: Long = 0
+    private val deleteCalendar = withCalendarPermission {
+        deleteCalendar(this.baseContext, this.deleteCalendarId)
+        // TODO: remove calendar from userCalendars without reQuerying
         this.getUserCalendars.runAction()
     }
 
