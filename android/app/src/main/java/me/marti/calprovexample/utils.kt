@@ -52,16 +52,19 @@ data class Color(
  * Throws an error if the string contains any characters that are not `0 - 9`, `a - f`, or `A - F`.
  */
 @Suppress("NAME_SHADOWING")
+@Throws(NumberFormatException::class)
 fun Color(hex: String): Color {
     // s could start with a '#'. In that case remove it.
-    val hex = if (hex[0] == '#') {
-        hex.drop(1)
-    } else {
-        hex
-    }
+    val hex = hex.getOrNull(0)?.let { first ->
+        if (first == '#') {
+            hex.drop(1)
+        } else {
+            hex
+        }
+    } ?: hex
 
-    if (hex.length > 6) {
-        throw NumberFormatException("hex string should be an RGB hexadecimal (6 characters)")
+    if (hex.length != 6) {
+        throw NumberFormatException("Hex string should be an RGB hexadecimal (6 characters long)")
     }
 
     val r = hex.slice(0..1).toUByte(16)
@@ -74,25 +77,21 @@ fun Color(hex: String): Color {
 /** Creates a color from the binary representation of an Integer.
  * This function assumes the bits represent an **ARGB** value.
  * The *Alpha* is ignored, so the color is converted to **RGB**.
- */
+ * Adapted from [https://stackoverflow.com/a/64168013](https://stackoverflow.com/a/64168013). */
 fun Color(i: Int): Color {
-    // Drop the 2 characters of the Alpha channel.
-    return Color(hexString(i).drop(2))
+    /** Apply a bit mask on the color value (i) to get the Byte at bytePos */
+    fun mask(bytePos: Int): UByte = (i shr bytePos and 0xFF).toUByte()
+    val progression = ((Int.SIZE_BITS - 8) downTo 0 step 8).iterator()
+
+    progression.next() // Skip the Alpha value
+    val r = mask(progression.next())
+    val g = mask(progression.next())
+    val b = mask(progression.next())
+
+    return Color(r, g, b)
 }
 
 /** Creates a color from the `Color` class of androidx. */
 fun Color(color: androidx.compose.ui.graphics.Color): Color {
     return Color(color.value.toInt())
-}
-
-/** Convert an integer to a string of its hexadecimal representation.
- * Adapted from [https://stackoverflow.com/a/64168013](https://stackoverflow.com/a/64168013). */
-private fun hexString(i: Int): String {
-    return IntProgression
-        // Operate on each byte of the Int
-        .fromClosedRange(rangeStart = Int.SIZE_BITS - 8, rangeEnd = 0, step = -8)
-        // Convert each byte to a hex (base 16) string (2 chars)
-        .joinToString("") { bytePos ->
-            (i shr bytePos and 0xFF).toString(16).padStart(2, '0')
-        }
 }

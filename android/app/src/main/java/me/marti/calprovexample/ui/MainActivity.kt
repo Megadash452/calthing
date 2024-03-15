@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
 
                         when (openItem) {
                             "newCalendar" -> NewCalendarAction(
-                                navUpClick = { openItem = "" },
+                                close = { openItem = "" },
                                 submit = { name, color ->
                                     this@MainActivity.newCalendarName = name
                                     this@MainActivity.newCalendarColor = color
