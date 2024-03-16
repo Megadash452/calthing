@@ -34,9 +34,7 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.UserCalendarListItem
-import me.marti.calprovexample.deleteCalendar
 import me.marti.calprovexample.getAppPreferences
-import me.marti.calprovexample.newCalendar
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.userCalendars
 
@@ -44,6 +42,8 @@ import me.marti.calprovexample.userCalendars
 typealias GroupedList<G, T> = Map<G, List<T>>
 
 class MainActivity : ComponentActivity() {
+    private val calendarPermission = CalendarPermission(this)
+
     // -- Hoisted States for compose
     /** The path/URI where the synced .ics files are stored in shared storage.
       * Null if the user hasn't selected a directory. */
@@ -52,14 +52,6 @@ class MainActivity : ComponentActivity() {
       * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
     private var userCalendars: MutableState<GroupedList<String, UserCalendarListItem>?> = mutableStateOf(null)
 
-    private val getUserCalendars = this.withCalendarPermission {
-        userCalendars(this.baseContext)?.also { cals ->
-            // Group calendars by Account Name
-            userCalendars.value = cals.groupBy { cal -> cal.accountName }
-        } ?: run {
-            println("Couldn't get user calendars")
-        }
-    }
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) {
@@ -100,8 +92,8 @@ class MainActivity : ComponentActivity() {
         Log.d(null, "Initializing Main Activity")
 
         // Populate the list of synced calendars, but only if the user had allowed it before.
-        if (getUserCalendars.hasPermission())
-            getUserCalendars.runAction()
+        if (this.calendarPermission.hasPermission())
+            this.getUserCalendars()
 
         this.setContent {
             CalProvExampleTheme {
@@ -131,16 +123,15 @@ class MainActivity : ComponentActivity() {
                                     groupedCalendars = userCalendars.value,
                                     hasSelectedDir = syncDir.value != null,
                                     selectDirClick = { this@MainActivity.selectSyncDir() },
-                                    calPermsClick =  { getUserCalendars.runAction() },
+                                    calPermsClick =  { this@MainActivity.getUserCalendars() },
                                     calIsSynced = { id -> syncedCals.contains(id) },
                                     onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) },
                                     deleteCalendar = { id ->
-                                        this@MainActivity.deleteCalendarId = id
-                                        this@MainActivity.deleteCalendar.runAction()
+                                        this@MainActivity.deleteCalendar(id)
                                     }
                                 )
                             }
-                            
+
                             this.tab(icon = Icons.Default.AccountCircle, title = "Contacts") { modifier ->
                                 Text("Contacts section", modifier = modifier)
                             }
@@ -150,9 +141,7 @@ class MainActivity : ComponentActivity() {
                             "newCalendar" -> NewCalendarAction(
                                 close = { openItem = "" },
                                 submit = { name, color ->
-                                    this@MainActivity.newCalendarName = name
-                                    this@MainActivity.newCalendarColor = color
-                                    this@MainActivity.newCalendar.runAction()
+                                    this@MainActivity.newCalendar(name, color)
                                     navController.navigateUp()
                                 }
                             )
@@ -184,25 +173,36 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                WithCalendarPermission.RationaleDialog()
+                this.calendarPermission.RationaleDialog()
             }
         }
     }
 
-    // TODO: find better way of passing arguments to WithCalendarPermission's action
-    private var newCalendarName = ""
-    private var newCalendarColor = Color(0)
-    private val newCalendar = withCalendarPermission {
-        newCalendar(this.baseContext, this.newCalendarName, this.newCalendarColor)
-        // TODO: add calendar to userCalendars without reQuerying
-        this.getUserCalendars.runAction()
+    private fun getUserCalendars() {
+        this.calendarPermission.run {
+            this.userCalendars()?.also { cals ->
+                // Group calendars by Account Name
+                userCalendars.value = cals.groupBy { cal -> cal.accountName }
+            } ?: run {
+                println("Couldn't get user calendars")
+            }
+        }
     }
 
-    private var deleteCalendarId: Long = 0
-    private val deleteCalendar = withCalendarPermission {
-        deleteCalendar(this.baseContext, this.deleteCalendarId)
-        // TODO: remove calendar from userCalendars without reQuerying
-        this.getUserCalendars.runAction()
+    private fun newCalendar(name: String, color: Color) {
+        this.calendarPermission.run {
+            this.newCalendar(name, color)
+            // TODO: add calendar to userCalendars without reQuerying
+            this@MainActivity.getUserCalendars()
+        }
+    }
+
+    private fun deleteCalendar(id: Long) {
+        this.calendarPermission.run {
+            this.deleteCalendar(id)
+            // TODO: remove calendar from userCalendars without reQuerying
+            this@MainActivity.getUserCalendars()
+        }
     }
 
     private fun selectSyncDir() {

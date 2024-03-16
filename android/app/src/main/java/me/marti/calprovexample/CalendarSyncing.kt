@@ -6,42 +6,32 @@ import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.provider.CalendarContract
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.graphics.toArgb
 import androidx.loader.content.CursorLoader
+import me.marti.calprovexample.ui.CalendarPermission
 
 const val ACCOUNT_TYPE = "marti.CalProv"
 const val ACCOUNT_NAME = "myuser"
 
 /** Outputs a list of all calendars that are synced on the user has on the device with the calendar provider. */
-fun userCalendars(context: Context): List<UserCalendarListItem>? {
-    val cur = context.getCursor(
+fun CalendarPermission.Dsl.userCalendars(): List<UserCalendarListItem>? {
+    val cur = this.context.getCursor(
         CalendarContract.Calendars.CONTENT_URI, UserCalendarListItem.Projection,
-        "((${CalendarContract.Calendars.ACCOUNT_TYPE} = ?))", arrayOf("marti.CalProv")
+        "((${CalendarContract.Calendars.ACCOUNT_TYPE} = ?))", arrayOf(ACCOUNT_TYPE)
     ) ?: return null
 
     val result = List(cur.count) {
         cur.moveToNext()
-        try {
-            UserCalendarListItem(
-                id = cur.getLong(UserCalendarListItem.Projection.ID.ordinal),
-                name = cur.getString(UserCalendarListItem.Projection.DISPLAY_NAME.ordinal),
-                accountName = cur.getString(UserCalendarListItem.Projection.ACCOUNT_NAME.ordinal),
-                // The stored color is a 32bit ARGB, but the alpha is ignored.
-                color = Color(cur.getInt(UserCalendarListItem.Projection.COLOR.ordinal)),
-            )
-        } catch (e: Exception) {
-            Log.e(null, "Error querying calendar: ${e.message}")
-            UserCalendarListItem(
-                id = cur.getLong(UserCalendarListItem.Projection.ID.ordinal),
-                name = "Error: ${e.message}",
-                accountName = "",
-                color = Color(0)
-            )
-        }
+        UserCalendarListItem(
+            id = cur.getLong(UserCalendarListItem.Projection.ID.ordinal),
+            name = cur.getString(UserCalendarListItem.Projection.DISPLAY_NAME.ordinal),
+            accountName = cur.getString(UserCalendarListItem.Projection.ACCOUNT_NAME.ordinal),
+            // The stored color is a 32bit ARGB, but the alpha is ignored.
+            color = Color(cur.getInt(UserCalendarListItem.Projection.COLOR.ordinal)),
+        )
     }
 
     cur.close()
@@ -68,8 +58,8 @@ data class UserCalendarListItem(
     }
 }
 
-fun newCalendar(context: Context, name: String, color: Color) {
-    val newCalUri = context.contentResolver.insert(asSyncAdapter(CalendarContract.Calendars.CONTENT_URI), ContentValues().apply {
+fun CalendarPermission.Dsl.newCalendar(name: String, color: Color) {
+    val newCalUri = this.context.contentResolver.insert(asSyncAdapter(CalendarContract.Calendars.CONTENT_URI), ContentValues().apply {
         // Required
         this.put(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
         this.put(CalendarContract.Calendars.ACCOUNT_TYPE, ACCOUNT_TYPE)
@@ -96,12 +86,12 @@ fun newCalendar(context: Context, name: String, color: Color) {
     Toast.makeText(context, "$newCalUri", Toast.LENGTH_SHORT).show()
 }
 
-fun deleteCalendar(context: Context, id: Long) {
+fun CalendarPermission.Dsl.deleteCalendar(id: Long) {
     // Events are automatically deleted with the calendar
     // TODO: show confirmation to delete
     // TODO: show snack-bar with undo button
     // TODO: delete only if sync adapter (UI will not show button if cant delete)
-    val cursor = context.getCursor(
+    val cursor = this.context.getCursor(
         ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, id),
         UserCalendarListItem.Projection,
     )
@@ -112,7 +102,7 @@ fun deleteCalendar(context: Context, id: Long) {
         cursor.getString(UserCalendarListItem.Projection.DISPLAY_NAME.ordinal)
     }
 
-    context.contentResolver.delete(
+    this.context.contentResolver.delete(
         asSyncAdapter(ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, id)),
         null, null
     )
