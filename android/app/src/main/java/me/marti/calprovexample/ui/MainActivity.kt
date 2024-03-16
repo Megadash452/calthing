@@ -34,9 +34,11 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.UserCalendarListItem
+import me.marti.calprovexample.userCalendars
+import me.marti.calprovexample.newCalendar
+import me.marti.calprovexample.deleteCalendar
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
-import me.marti.calprovexample.userCalendars
 
 /** A **`List<T>`** grouped by values **`G`**, which are members of **`T`**. */
 typealias GroupedList<G, T> = Map<G, List<T>>
