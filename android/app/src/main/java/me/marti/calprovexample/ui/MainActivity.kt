@@ -38,6 +38,8 @@ import me.marti.calprovexample.userCalendars
 typealias GroupedList<G, T> = Map<G, List<T>>
 
 class MainActivity : ComponentActivity() {
+    private val calendarPermission = CalendarPermission(this)
+
     // -- Hoisted States for compose
     /** The path/URI where the synced .ics files are stored in shared storage.
       * Null if the user hasn't selected a directory. */
@@ -46,14 +48,6 @@ class MainActivity : ComponentActivity() {
       * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
     private var userCalendars: MutableState<GroupedList<String, UserCalendarListItem>?> = mutableStateOf(null)
 
-    private val getUserCalendars = this.withCalendarPermission {
-        userCalendars(this.baseContext)?.also { cals ->
-            // Group calendars by Account Name
-            userCalendars.value = cals.groupBy { cal -> cal.accountName }
-        } ?: run {
-            println("Couldn't get user calendars")
-        }
-    }
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) {
@@ -94,8 +88,8 @@ class MainActivity : ComponentActivity() {
         Log.d(null, "Initializing Main Activity")
 
         // Populate the list of synced calendars, but only if the user had allowed it before.
-        if (getUserCalendars.hasPermission())
-            getUserCalendars.runAction()
+        if (this.calendarPermission.hasPermission())
+            this.getUserCalendars()
 
         val tabs = listOf(
             PrimaryTabNavDestinationWithFab(
@@ -116,7 +110,7 @@ class MainActivity : ComponentActivity() {
                     groupedCalendars = userCalendars.value,
                     hasSelectedDir = syncDir.value != null,
                     selectDirClick = { this.selectSyncDir() },
-                    calPermsClick =  { getUserCalendars.runAction() },
+                    calPermsClick =  { this.getUserCalendars() },
                     calIsSynced = { id -> syncedCals.contains(id) },
                     onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) }
                 )
@@ -164,7 +158,18 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                WithCalendarPermission.RationaleDialog()
+                this.calendarPermission.RationaleDialog()
+            }
+        }
+    }
+
+    private fun getUserCalendars() {
+        this.calendarPermission.run {
+            this.userCalendars()?.also { cals ->
+                // Group calendars by Account Name
+                userCalendars.value = cals.groupBy { cal -> cal.accountName }
+            } ?: run {
+                println("Couldn't get user calendars")
             }
         }
     }

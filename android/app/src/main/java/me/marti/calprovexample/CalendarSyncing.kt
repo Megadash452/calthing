@@ -7,11 +7,11 @@ import android.provider.CalendarContract
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.loader.content.CursorLoader
-import kotlin.enums.EnumEntries
+import me.marti.calprovexample.ui.CalendarPermission
 
 /** Outputs a list of all calendars that are synced on the user has on the device with the calendar provider. */
-fun userCalendars(context: Context): List<UserCalendarListItem>? {
-    val cur = context.getCursor(
+fun CalendarPermission.Dsl.userCalendars(): List<UserCalendarListItem>? {
+    val cur = this.context.getCursor(
         CalendarContract.Calendars.CONTENT_URI, UserCalendarListItem.Projection
     ) ?: return null
 
