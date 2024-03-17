@@ -34,11 +34,12 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.UserCalendarListItem
-import me.marti.calprovexample.userCalendars
-import me.marti.calprovexample.newCalendar
+import me.marti.calprovexample.copyFromDevice
 import me.marti.calprovexample.deleteCalendar
 import me.marti.calprovexample.getAppPreferences
+import me.marti.calprovexample.newCalendar
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
+import me.marti.calprovexample.userCalendars
 
 /** A **`List<T>`** grouped by values **`G`**, which are members of **`T`**. */
 typealias GroupedList<G, T> = Map<G, List<T>>
@@ -95,7 +96,7 @@ class MainActivity : ComponentActivity() {
 
         // Populate the list of synced calendars, but only if the user had allowed it before.
         if (this.calendarPermission.hasPermission())
-            this.getUserCalendars()
+            this.setUserCalendars()
 
         this.setContent {
             CalProvExampleTheme {
@@ -104,7 +105,7 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController, startDestination = NavDestination.Main.route) {
                     this.composable(NavDestination.Main.route) {
                         // Open a secondary item in this screen, such as the FAB or a dialog
-                        var openItem by rememberSaveable { mutableStateOf("") }
+                        var openAction: Actions? by rememberSaveable { mutableStateOf(null) }
                         MainContent(navigateTo = { dest -> navController.navigate(dest.route) }) {
                             this.tabWithFab(
                                 icon = Icons.Default.DateRange,
@@ -113,10 +114,12 @@ class MainActivity : ComponentActivity() {
                                     icon = Icons.Default.Add,
                                     description = "Add/New Calendar",
                                     actions = NonEmptyList(
-                                        first = ExpandableFab.Action(Icons.Default.Create, "New blank calendar")
-                                            { openItem = "newCalendar" },
-                                        ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar") { /* TODO */ },
-                                        ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file") { /* TODO */ },
+                                        ExpandableFab.Action(Icons.Default.Create, "New blank calendar")
+                                            { openAction = Actions.NewCalendar },
+                                        ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar")
+                                            { openAction = Actions.CopyCalendar },
+                                        ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file")
+                                            { openAction = Actions.ImportFile },
                                     )
                                 ),
                             ) { modifier ->
@@ -125,7 +128,7 @@ class MainActivity : ComponentActivity() {
                                     groupedCalendars = userCalendars.value,
                                     hasSelectedDir = syncDir.value != null,
                                     selectDirClick = { this@MainActivity.selectSyncDir() },
-                                    calPermsClick =  { this@MainActivity.getUserCalendars() },
+                                    calPermsClick =  { this@MainActivity.setUserCalendars() },
                                     calIsSynced = { id -> syncedCals.contains(id) },
                                     onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) },
                                     deleteCalendar = { id ->
@@ -139,14 +142,38 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        when (openItem) {
-                            "newCalendar" -> NewCalendarAction(
-                                close = { openItem = "" },
-                                submit = { name, color ->
-                                    this@MainActivity.newCalendar(name, color)
-                                    navController.navigateUp()
-                                }
+                        // Show a dialog for the current action the user selected
+                        when (openAction) {
+                            Actions.NewCalendar -> NewCalendarAction(
+                                close = { openAction = null },
+                                submit = { name, color -> this@MainActivity.newCalendar(name, color) }
                             )
+                            Actions.CopyCalendar -> {
+                                // Get the Calendars in the device the user can copy
+                                var calendars by remember { mutableStateOf<GroupedList<String, UserCalendarListItem>?>(null) }
+                                var error by remember { mutableStateOf(false) }
+                                this@MainActivity.calendarPermission.run {
+                                    this.userCalendars(false)?.let { cals ->
+                                        calendars = cals.groupBy { cal -> cal.accountName }
+                                    } ?: run {
+                                        error = true
+                                    }
+                                }
+
+                                if (calendars != null) {
+                                    CopyCalendarAction(
+                                        calendars = calendars!!,
+                                        close = { openAction = null },
+                                        submit = { id -> this@MainActivity.copyCalendars(id) }
+                                    )
+                                } else if (error) {
+                                    Text("Could not query user calendars")
+                                } else {
+                                    Text("Waiting for Calendar Permission...")
+                                }
+                            }
+                            Actions.ImportFile -> { /* TODO */ }
+                            null -> {}
                         }
                     }
                     this.composable(NavDestination.Settings.route) {
@@ -180,7 +207,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun getUserCalendars() {
+    private fun setUserCalendars() {
         this.calendarPermission.run {
             this.userCalendars()?.also { cals ->
                 // Group calendars by Account Name
@@ -195,7 +222,7 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             this.newCalendar(name, color)
             // TODO: add calendar to userCalendars without reQuerying
-            this@MainActivity.getUserCalendars()
+            this@MainActivity.setUserCalendars()
         }
     }
 
@@ -203,7 +230,15 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             this.deleteCalendar(id)
             // TODO: remove calendar from userCalendars without reQuerying
-            this@MainActivity.getUserCalendars()
+            this@MainActivity.setUserCalendars()
+        }
+    }
+
+    private fun copyCalendars(ids: List<Long>) {
+        this.calendarPermission.run {
+            this.copyFromDevice(ids)
+            // TODO: add calendars to userCalendars without reQuerying
+            this@MainActivity.setUserCalendars()
         }
     }
 

@@ -650,11 +650,11 @@ private fun CalendarListItem(
                     Spacer(Modifier.size(4.dp))
                     HorizontalDivider()
                     Row {
-                        // TODO: less padding on these buttons
-                        IconButton(onClick = { /*TODO*/ }) {
+                        val buttonSize = 36.dp
+                        IconButton(modifier = Modifier.size(buttonSize), onClick = { /*TODO*/ }) {
                             Icon(Icons.Default.Create, "Edit Calendar")
                         }
-                        IconButton(onClick = deleteClick) {
+                        IconButton(modifier = Modifier.size(buttonSize), onClick = deleteClick) {
                             Icon(Icons.Default.Delete, "Delete Calendar", tint = MaterialTheme.colorScheme.error)
                         }
                     }

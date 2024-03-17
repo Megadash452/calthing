@@ -70,9 +70,9 @@ private const val WRITE_CALENDAR_PERMISSION = "android.permission.WRITE_CALENDAR
  * ## Bugs
  * Don't use `calendarPermission.run` before `MainActivity.onCreate()` because it will never run.
  *
- * Don't do this, `a` will always print null.
+ * Don't do this, `a` will always print null (except when it doesn't).
  * ```kt
- * private fun doCalendarThing(arg: String) {
+ * fun doCalendarThing(arg: String) {
  *     var a = null
  *     this.calendarPermission.run {
  *         this.getCalendarData(arg)
@@ -82,6 +82,21 @@ private const val WRITE_CALENDAR_PERMISSION = "android.permission.WRITE_CALENDAR
  *     println(a)
  * }
  * ```
+ *
+ * This, however, ***will*** work:
+ * ```kt
+ * @Composable
+ * fun doCalendarThing(arg: String) {
+ *     var a by remember { mutableStateOf(null) }
+ *     this.calendarPermission.run {
+ *         this.getCalendarData(arg)
+ *         a = "Hi!!!"
+ *         ...
+ *     }
+ *     Text(a)
+ * }
+ * ```
+ * This can be used as a pseudo-return value for the function being run.
  */
 class CalendarPermission(
     private val activity: MainActivity
