@@ -1,21 +1,9 @@
 package me.marti.calprovexample
 
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.graphics.Color as ComposeColor
 
 /** A **`List<T>`** grouped by values **`G`**, which are members of **`T`**. */
 typealias GroupedList<G, T> = Map<G, List<T>>
-typealias GroupedMutableStateList<G, T> = Map<G, SnapshotStateList<T>>
-/** Returns the value *list* for the group *key*. If the group doesn't exist, this function will create it.
- * @param setValue To create the group, the underlying `Map` needs to be replaced at some *mutable* location. */
-fun <G, T> GroupedMutableStateList<G, T>.getOrCreate(key: G, setValue: (GroupedMutableStateList<G, T>) -> Unit): SnapshotStateList<T> {
-    val list = mutableStateListOf<T>()
-    setValue(this.toMutableMap().apply {
-        this[key] = list
-    })
-    return list
-}
 
 /** */
 class NonEmptyList<T>(

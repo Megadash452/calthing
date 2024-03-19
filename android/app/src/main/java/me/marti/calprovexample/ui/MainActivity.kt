@@ -1,5 +1,6 @@
 package me.marti.calprovexample.ui
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -20,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
@@ -29,7 +31,6 @@ import androidx.navigation.compose.rememberNavController
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.GroupedList
-import me.marti.calprovexample.GroupedMutableStateList
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.PreferenceKey
 import me.marti.calprovexample.R
@@ -42,7 +43,6 @@ import me.marti.calprovexample.calendar.deleteCalendar
 import me.marti.calprovexample.calendar.newCalendar
 import me.marti.calprovexample.calendar.userCalendars
 import me.marti.calprovexample.getAppPreferences
-import me.marti.calprovexample.getOrCreate
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
 class MainActivity : ComponentActivity() {
@@ -54,7 +54,8 @@ class MainActivity : ComponentActivity() {
     private val syncDir = StringLikeUserPreference(PreferenceKey.SYNC_DIR_URI) { uri -> uri.toUri() }
     /** Calendars are grouped by Account Name.
       * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
-    private var userCalendars: MutableState<GroupedMutableStateList<String, UserCalendarListItem>?> = mutableStateOf(null)
+    @SuppressLint("MutableCollectionMutableState")
+    private var userCalendars: MutableState<SnapshotStateList<UserCalendarListItem>?> = mutableStateOf(null)
 
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -126,7 +127,7 @@ class MainActivity : ComponentActivity() {
                             ) { modifier ->
                                 Calendars(
                                     modifier = modifier,
-                                    groupedCalendars = userCalendars.value,
+                                    groupedCalendars = userCalendars.value?.groupBy { cal -> cal.accountName },
                                     hasSelectedDir = syncDir.value != null,
                                     selectDirClick = { this@MainActivity.selectSyncDir() },
                                     calPermsClick =  { this@MainActivity.setUserCalendars() },
@@ -212,9 +213,7 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             this.userCalendars()?.also { cals ->
                 // Group calendars by Account Name
-                userCalendars.value = cals
-                    .groupBy { cal -> cal.accountName }
-                    .mapValues { (_, list) -> list.toMutableStateList() }
+                userCalendars.value = cals.toMutableStateList()
             } ?: run {
                 println("Couldn't get user calendars")
             }
@@ -225,11 +224,7 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             this.newCalendar(name, color)?.let { newCal ->
                 // Add the Calendar to the list
-                userCalendars.value?.let { calendars ->
-                    // If the group for this account doesn't exist, create it.
-                    val list = calendars.getOrCreate(newCal.accountName) { userCalendars.value = it }
-                    list.add(newCal)
-                } ?: run {
+                userCalendars.value?.add(newCal) ?: run {
                     this@MainActivity.setUserCalendars()
                 }
             }
@@ -240,13 +235,7 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             this.deleteCalendar(id)
             // Remove the deleted Calendar from the list
-            userCalendars.value?.let { calendars ->
-                calendars.forEach { (_, list) ->
-                    // break if the calendar was found and removed
-                    if (list.removeIf { cal -> cal.id == id })
-                        return@forEach
-                }
-            }  ?: run {
+            userCalendars.value?.removeIf { cal -> cal.id == id }  ?: run {
                 this@MainActivity.setUserCalendars()
             }
         }
@@ -256,15 +245,9 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             this.copyFromDevice(ids)?.let { newCals ->
                 // Add the Calendars to the list
-                userCalendars.value?.let { calendars ->
-                    newCals.forEach { newCal ->
-                        // If the group for this account doesn't exist, create it.
-                        val list = calendars.getOrCreate(newCal.accountName) { userCalendars.value = it }
-                        list.add(newCal)
-                    }
+                userCalendars.value?.addAll(newCals) ?: run {
+                    this@MainActivity.setUserCalendars()
                 }
-            } ?: run {
-                this@MainActivity.setUserCalendars()
             }
         }
     }
