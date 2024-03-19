@@ -86,9 +86,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
+import me.marti.calprovexample.GroupedList
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.R
-import me.marti.calprovexample.UserCalendarListItem
+import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import androidx.compose.ui.graphics.Color as ComposeColor
 

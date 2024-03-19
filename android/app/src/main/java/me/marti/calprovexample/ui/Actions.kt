@@ -1,6 +1,5 @@
 package me.marti.calprovexample.ui
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,7 +44,8 @@ import com.github.skydoves.colorpicker.compose.BrightnessSlider
 import com.github.skydoves.colorpicker.compose.HsvColorPicker
 import com.github.skydoves.colorpicker.compose.rememberColorPickerController
 import me.marti.calprovexample.Color
-import me.marti.calprovexample.UserCalendarListItem
+import me.marti.calprovexample.GroupedList
+import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
 enum class Actions {
@@ -135,6 +135,7 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 calendars.forEach { (accName, group) ->
+                    // TODO: sticky header
                     this.items(group) { cal ->
                         Calendar(
                             color = cal.color, name = cal.name,

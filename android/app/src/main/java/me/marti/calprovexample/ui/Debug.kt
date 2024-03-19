@@ -1,6 +1,5 @@
 package me.marti.calprovexample.ui
 
-import android.content.Context
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,7 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import me.marti.calprovexample.AllData
+import me.marti.calprovexample.calendar.AllData
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
 /** @param navUpClick An optional BackButton that navigates to the previous `NavDestination` will be shown if this is not *`NULL`*. */
