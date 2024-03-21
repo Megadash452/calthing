@@ -3,7 +3,6 @@ package me.marti.calprovexample
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.provider.CalendarContract
 import androidx.core.net.toUri
 
 class CalendarBroadcastReceiver : BroadcastReceiver() {
