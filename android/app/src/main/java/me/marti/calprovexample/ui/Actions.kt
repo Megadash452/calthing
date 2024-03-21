@@ -1,5 +1,6 @@
 package me.marti.calprovexample.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -38,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.github.skydoves.colorpicker.compose.BrightnessSlider
@@ -115,6 +118,7 @@ fun NewCalendarAction(modifier: Modifier = Modifier, close: () -> Unit, submit: 
  * @param submit Function that runs when the "Select" button is clicked.
  *               Argument is a list of Calendar IDs.
  *               User can select multiple calendars, aka a `List<Long>` */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<String, UserCalendarListItem>, close: () -> Unit, submit: (List<Long>) -> Unit) {
     val selectedIds = remember { mutableStateMapOf<Long, Unit>() }
@@ -134,8 +138,29 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
         },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                calendars.forEach { (accName, group) ->
-                    // TODO: sticky header
+                calendars.forEach { (accountName, group) ->
+                    this.stickyHeader { StickyHeader(text = accountName, leadingContent = {
+                        // Mapping of whether some, all, or none of the group's calendars are in selectedIds.
+                        val selected = group.map { cal -> selectedIds.containsKey(cal.id) }
+                        TriStateCheckbox(
+                            modifier = Modifier.size(24.dp),
+                            state =
+                                // All items of the group are selected if all their IDs are in the selectedIds Set.
+                                if (selected.all { it })
+                                    ToggleableState.On
+                                else if (selected.contains(true))
+                                    ToggleableState.Indeterminate
+                                else ToggleableState.Off,
+                            onClick = {
+                                // Deselect all if all are selected
+                                if (selected.all { it })
+                                    group.forEach { cal -> selectedIds.remove(cal.id) }
+                                // Otherwise, Select all.
+                                else
+                                    group.forEach { cal -> selectedIds[cal.id] = Unit }
+                            }
+                        )
+                    }) }
                     this.items(group) { cal ->
                         Calendar(
                             color = cal.color, name = cal.name,

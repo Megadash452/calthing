@@ -583,24 +583,8 @@ fun Calendars(
                 contentPadding = PaddingValues(bottom = 80.dp, start = LIST_PADDING.dp, end = LIST_PADDING.dp)
             ) {
                 groupedCalendars.forEach { (accountName, calGroup) ->
-                    this.stickyHeader {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            tonalElevation = 0.dp,
-                            shape = MaterialTheme.shapes.small,
-                        ) {
-                            Text(
-                                text = accountName,
-                                modifier = Modifier
-                                    .padding(2.dp)
-                                    .padding(start = 4.dp),
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                        }
-                    }
+                    this.stickyHeader { StickyHeader(text = accountName) }
+
                     this.items(calGroup, key = { cal -> cal.id }) { cal ->
                         CalendarListItem(
                             cal = cal,
@@ -704,6 +688,31 @@ fun SettingsContent(
     }
 }
 
+
+/** The sticky header used in the LazyColumn to list the user's calendars. */
+@Composable
+fun StickyHeader(modifier: Modifier = Modifier, leadingContent: @Composable () -> Unit = {}, text: String) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        tonalElevation = 0.dp,
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Row(
+            Modifier.padding(2.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            leadingContent()
+            Text(
+                text = text,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleSmall
+            )
+        }
+    }
+}
 
 /** A Button that has an icon and text*/
 @Composable
