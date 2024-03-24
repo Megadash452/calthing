@@ -1,5 +1,6 @@
 package me.marti.calprovexample.calendar
 
+import android.accounts.AccountManager
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
@@ -9,8 +10,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.core.database.getStringOrNull
 import androidx.loader.content.CursorLoader
+import me.marti.calprovexample.R
+import kotlin.concurrent.thread
 
-const val ACCOUNT_TYPE = "marti.CalProv"
 const val ACCOUNT_NAME = "myuser"
 
 internal fun Context.getCursor(uri: Uri, projection: QueryProjection, selection: String = "", selectionArgs: Array<String> = arrayOf(), sort: String = ""): Cursor? {
@@ -34,11 +36,30 @@ internal fun Context.getCursor(uri: Uri, projection: QueryProjection, selection:
     }
 }
 
-internal fun asSyncAdapter(uri: Uri): Uri {
+internal fun Context.asSyncAdapter(uri: Uri): Uri {
+    val accountType = this.getString(R.string.account_type)
+
+    // For changes made as SyncAdapter, an account must be created in the device with this accountType.
+    val manager = AccountManager.get(this)
+    manager.getAccountsByType(accountType).let { accounts ->
+        if (accounts.isEmpty())
+            // Create new account if there isn't one already
+            manager.addAccount(accountType, null, null, null, null, { result ->
+                thread(start = true) {
+                    result.result
+                    Log.d(null, "Added account for '$accountType'")
+                }
+            }, null)
+        // Expected behavior is for only 1 account to exist.
+        // If multiple accounts exist something went wrong
+        else
+            throw Exception("Multiple accounts of '$accountType' were found when using asSyncAdapter().")
+    }
+
     return uri.buildUpon()
         .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
         .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
-        .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, ACCOUNT_TYPE)
+        .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, accountType)
         .build()
 }
 

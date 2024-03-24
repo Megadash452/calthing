@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.database.getStringOrNull
 import me.marti.calprovexample.Color
+import me.marti.calprovexample.R
 import me.marti.calprovexample.ui.CalendarPermission
 
 /** Outputs a list of all calendars that are synced on the user has on the device with the calendar provider.
@@ -18,7 +19,7 @@ fun CalendarPermission.Dsl.userCalendars(internal: Boolean = true): List<UserCal
     val op = if (internal) "=" else "!="
     val cur = this.context.getCursor(
         CalendarContract.Calendars.CONTENT_URI, UserCalendarListItem.Projection,
-        "((${CalendarContract.Calendars.ACCOUNT_TYPE} $op ?))", arrayOf(ACCOUNT_TYPE)
+        "((${CalendarContract.Calendars.ACCOUNT_TYPE} $op ?))", arrayOf(this.context.getString(R.string.account_type))
     ) ?: return null
 
     val result = List(cur.count) {
@@ -59,9 +60,9 @@ data class UserCalendarListItem(
 /** @return Returns the basic data about the Calendar so it can be added to the *`userCalendars`* list.
  *          **`Null`** if adding the calendar failed. */
 fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): UserCalendarListItem? {
-    val newCalUri = this.context.contentResolver.insert(asSyncAdapter(CalendarContract.Calendars.CONTENT_URI), ContentValues().apply {
+    val newCalUri = this.context.contentResolver.insert(this.context.asSyncAdapter(CalendarContract.Calendars.CONTENT_URI), ContentValues().apply {
         // Required
-        this.put(CalendarContract.Calendars.ACCOUNT_TYPE, ACCOUNT_TYPE)
+        this.put(CalendarContract.Calendars.ACCOUNT_TYPE, this@newCalendar.context.getString(R.string.account_type))
         this.put(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
         this.put(CalendarContract.Calendars.OWNER_ACCOUNT, ACCOUNT_NAME)
         this.put(CalendarContract.Calendars.NAME, name) // Don't really know what this is for
@@ -114,7 +115,7 @@ fun CalendarPermission.Dsl.deleteCalendar(id: Long) {
     } ?: "UNKNOWN"
 
     this.context.contentResolver.delete(
-        asSyncAdapter(ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, id)),
+        this.context.asSyncAdapter(ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, id)),
         null, null
     )
     Toast.makeText(context, "Deleted Calendar \"$calName\"", Toast.LENGTH_SHORT).show()
@@ -155,12 +156,12 @@ fun CalendarPermission.Dsl.copyFromDevice(ids: List<Long>): List<UserCalendarLis
                 cursor.getStringOrNull(entry.ordinal)?.let { this.put(entry.column, it) }
             }
         }
-        data.put(CalendarContract.Calendars.ACCOUNT_TYPE, ACCOUNT_TYPE)
+        data.put(CalendarContract.Calendars.ACCOUNT_TYPE, this.context.getString(R.string.account_type))
         data.put(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
         data.put(CalendarContract.Calendars.OWNER_ACCOUNT, ACCOUNT_NAME)
         // data.put(CalendarContract.Calendars._SYNC_ID, ???)
         // Write the calendar data to the content provider
-        client.insert(asSyncAdapter(CalendarContract.Calendars.CONTENT_URI), data)?.let { newCal ->
+        client.insert(this.context.asSyncAdapter(CalendarContract.Calendars.CONTENT_URI), data)?.let { newCal ->
             successCals.add(UserCalendarListItem(
                 id = ContentUris.parseId(newCal),
                 name = data.getAsString(CopyCalendarsProjection.DISPLAY_NAME.column),

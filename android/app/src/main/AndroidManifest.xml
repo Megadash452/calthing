@@ -16,6 +16,25 @@
         android:theme="@style/Theme.CalProvExample"
         tools:targetApi="31">
 
+        <!-- Stubbed (fake) Sync adapter service -->
+        <service android:name=".syncAdapter.AuthenticatorService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accounts.AccountAuthenticator"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.accounts.AccountAuthenticator"
+                android:resource="@xml/authenticator"
+            />
+        </service>
+        <!-- Stubbed (fake) custom Content provider -->
+        <provider
+            android:name=".syncAdapter.ContentProvider"
+            android:authorities="me.marti.calprovexample"
+            android:exported="false"
+            android:syncable="true"
+        />
+
         <!-- Register to detect changes in the Calendar content provider -->
         <receiver android:name=".CalendarBroadcastReceiver" android:exported="true"
             android:permission="android.permission.WRITE_CALENDAR">
