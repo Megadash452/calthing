@@ -1,5 +1,6 @@
 package me.marti.calprovexample.calendar
 
+import android.content.ContentProviderClient
 import android.content.ContentUris
 import android.content.Context
 import android.database.Cursor
@@ -9,21 +10,38 @@ import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.core.database.getStringOrNull
-import androidx.loader.content.CursorLoader
-import me.marti.calprovexample.R
 
-internal fun Context.getCursor(uri: Uri, projection: QueryProjection, selection: String = "", selectionArgs: Array<String> = arrayOf(), sort: String = ""): Cursor? {
-    val loader = CursorLoader(
-        this,
-        uri,
-        projection.projectionArray(),
-        selection,
-        selectionArgs,
-        sort
-    )
+/** Create a **cursor** to query the data of a *Content Provider*.
+ *
+ * Only use this function if it will be the only *operation* done on the *Content Provider*.
+ * If there will be more operations (e.g. create another cursor, insert, etc.),
+ * create a **client** with [`context.contentResolver.acquireContentProviderClient()`][android.content.ContentResolver.acquireContentProviderClient]
+ * and call [`client.getCursor()`][ContentProviderClient.getCursor], and also do all the other operations with this **client**.
+ *
+ * The cursor must be [closed][ContentProviderClient.close] when it is no longer needed.
+ *
+ * ### Params
+ * See [`ContentResolver.query()`][android.content.ContentResolver.query] for description of parameters. */
+internal fun Context.getCursor(uri: Uri, projection: QueryProjection, selection: String = "", selectionArgs: Array<String> = arrayOf(), sort: String = ""): Cursor?
+    = openCursor { this.contentResolver.query(uri, projection.projectionArray(), selection, selectionArgs, sort) }
 
+/** Create a **cursor** to query the data of a *Content Provider*.
+ *
+ *  When this is the only *operation* done on the *Content Provider*, there is no need to create a **client**,
+ *  just use [`context.getCursor()`][Context.getCursor].
+ *
+ *  The cursor must be [closed][ContentProviderClient.close] when it is no longer needed.
+ *
+ * ### Params
+ * See [`ContentResolver.query()`][android.content.ContentResolver.query] for description of parameters.*/
+internal fun ContentProviderClient.getCursor(uri: Uri, projection: QueryProjection, selection: String = "", selectionArgs: Array<String> = arrayOf(), sort: String = ""): Cursor?
+    = openCursor { this.query(uri, projection.projectionArray(), selection, selectionArgs, sort) }
+
+/** Consolidate the 2 getCursor functions. */
+private fun openCursor(create: () -> Cursor?): Cursor? {
     return try {
-        val cur = loader.loadInBackground()
+        // No need to use the CursorLoader since all these functions are run in a separate thread.
+        val cur = create()
         if (cur == null)
             println("Returned cursor was null")
         cur
@@ -32,6 +50,14 @@ internal fun Context.getCursor(uri: Uri, projection: QueryProjection, selection:
         null
     }
 }
+
+/** Get a client for general operations on the Calendar *Content Provider*
+ *
+ * The client must be [closed][ContentProviderClient.close] when it is no longer needed. */
+internal fun Context.getClient(): ContentProviderClient
+    = this.contentResolver.acquireContentProviderClient(CalendarContract.CONTENT_URI)
+        ?: throw Exception("Device does not have a System Calendars Content Provider.")
+
 
 internal fun Uri.asSyncAdapter(accountName: String): Uri {
     return this.buildUpon()

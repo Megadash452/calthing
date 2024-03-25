@@ -1,6 +1,15 @@
 package me.marti.calprovexample.calendar
 
+import android.content.ContentValues
+import android.database.Cursor
 import android.provider.CalendarContract
+
+/** Some Calendars owned by this App are created by *importing* (copying) calendars created by other apps.
+ *  To prevent the user from copying the calendar more than once,
+ *  this *General-Purpose* field is set to the **ID** of the calendar it was copied from in the *ContentProvider*.
+ *
+ *  The value of this field will be **`NULL`** if calendar was *not copied* from another calendar in the device. */
+const val IMPORTED_FROM_COLUMN = CalendarContract.Calendars.CAL_SYNC1
 
 /** The projection that is passed to a `CursorLoader` to tell it what columns we want to read.
  * This is the `SELECT` part of the query.
@@ -16,7 +25,22 @@ internal open class EmptyProjection: QueryProjection {
     companion object: EmptyProjection()
 }
 
+// Gets only the data required to display Calendar Info
+enum class DisplayCalendarProjection(val s: String) {
+    ID(CalendarContract.Calendars._ID),
+    DISPLAY_NAME(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME),
+    ACCOUNT_NAME(CalendarContract.Calendars.ACCOUNT_NAME),
+    COLOR(CalendarContract.Calendars.CALENDAR_COLOR);
+
+    companion object : QueryProjection {
+        override fun projectionArray(): Array<String> {
+            return DisplayCalendarProjection.entries.toList().map { it.s }.toTypedArray()
+        }
+    }
+}
+
 internal enum class CopyCalendarsProjection(val column: String) {
+    ID(CalendarContract.Calendars._ID),
     DISPLAY_NAME(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME),
     COLOR(CalendarContract.Calendars.CALENDAR_COLOR),
     // COLOR_KEY(CalendarContract.Calendars.CALENDAR_COLOR_KEY), // Including color key causes an error
@@ -37,6 +61,21 @@ internal enum class CopyCalendarsProjection(val column: String) {
     companion object : QueryProjection {
         override fun projectionArray(): Array<String> {
             return CopyCalendarsProjection.entries.toList().map { it.column }.toTypedArray()
+        }
+
+        fun loadCursorData(cursor: Cursor): ContentValues {
+            val data = ContentValues()
+            CopyCalendarsProjection.entries.forEach { entry ->
+                when (cursor.getType(entry.ordinal)) {
+                    // Use the cursor.get* variants that have the largest size to avoid errors.
+                    Cursor.FIELD_TYPE_INTEGER -> data.put(entry.column, cursor.getLong(entry.ordinal))
+                    Cursor.FIELD_TYPE_FLOAT -> data.put(entry.column, cursor.getDouble(entry.ordinal))
+                    Cursor.FIELD_TYPE_STRING -> data.put(entry.column, cursor.getString(entry.ordinal))
+                    Cursor.FIELD_TYPE_BLOB -> data.put(entry.column, cursor.getBlob(entry.ordinal))
+                    Cursor.FIELD_TYPE_NULL -> {} // Put nothing
+                }
+            }
+            return data
         }
     }
 }

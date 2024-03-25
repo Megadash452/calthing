@@ -28,6 +28,7 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import java.util.concurrent.Executors
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.GroupedList
@@ -155,10 +156,12 @@ class MainActivity : ComponentActivity() {
                                 var calendars by remember { mutableStateOf<GroupedList<String, UserCalendarListItem>?>(null) }
                                 var error by remember { mutableStateOf(false) }
                                 this@MainActivity.calendarPermission.run {
-                                    this.userCalendars(false)?.let { cals ->
-                                        calendars = cals.groupBy { cal -> cal.accountName }
-                                    } ?: run {
-                                        error = true
+                                    calendarsThread.submit {
+                                        this.userCalendars(false)?.let { cals ->
+                                            calendars = cals.groupBy { cal -> cal.accountName }
+                                        } ?: run {
+                                            error = true
+                                        }
                                     }
                                 }
 
@@ -209,23 +212,35 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** System Calendar operations can block the main thread, so delegate them to another thread.
+     *  Use **`calendarsThread.execute`** inside a *`calendarPermission.run`* block.
+     *
+     *  Using *Worker threads* instead of `AsyncTask` and `Loader`s because I understand it better.*/
+    // TODO: might create a DSL, and make the CalendarPermissionDSL depend on that DSL.
+    // TODO: or might put the Executor in the Calendar permission?
+    private val calendarsThread = Executors.newSingleThreadExecutor()
+
     private fun setUserCalendars() {
         this.calendarPermission.run {
-            this.userCalendars()?.also { cals ->
-                // Group calendars by Account Name
-                userCalendars.value = cals.toMutableStateList()
-            } ?: run {
-                println("Couldn't get user calendars")
+            calendarsThread.execute {
+                this.userCalendars()?.also { cals ->
+                    // Group calendars by Account Name
+                    userCalendars.value = cals.toMutableStateList()
+                } ?: run {
+                    println("Couldn't get user calendars")
+                }
             }
         }
     }
 
     private fun newCalendar(name: String, color: Color) {
         this.calendarPermission.run {
-            this.newCalendar(name, color)?.let { newCal ->
-                // Add the Calendar to the list
-                userCalendars.value?.add(newCal) ?: run {
-                    this@MainActivity.setUserCalendars()
+            calendarsThread.execute {
+                this.newCalendar(name, color)?.let { newCal ->
+                    // Add the Calendar to the list
+                    userCalendars.value?.add(newCal) ?: run {
+                        this@MainActivity.setUserCalendars()
+                    }
                 }
             }
         }
@@ -233,20 +248,25 @@ class MainActivity : ComponentActivity() {
 
     private fun deleteCalendar(id: Long) {
         this.calendarPermission.run {
-            this.deleteCalendar(id)
-            // Remove the deleted Calendar from the list
-            userCalendars.value?.removeIf { cal -> cal.id == id }  ?: run {
-                this@MainActivity.setUserCalendars()
+            calendarsThread.execute {
+                if (this.deleteCalendar(id)) {
+                    // Remove the deleted Calendar from the list
+                    userCalendars.value?.removeIf { cal -> cal.id == id }  ?: run {
+                        this@MainActivity.setUserCalendars()
+                    }
+                }
             }
         }
     }
 
     private fun copyCalendars(ids: List<Long>) {
         this.calendarPermission.run {
-            this.copyFromDevice(ids)?.let { newCals ->
-                // Add the Calendars to the list
-                userCalendars.value?.addAll(newCals) ?: run {
-                    this@MainActivity.setUserCalendars()
+            calendarsThread.execute {
+                this.copyFromDevice(ids)?.let { newCals ->
+                    // Add the Calendars to the list
+                    userCalendars.value?.addAll(newCals) ?: run {
+                        this@MainActivity.setUserCalendars()
+                    }
                 }
             }
         }
