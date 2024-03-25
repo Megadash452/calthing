@@ -226,8 +226,6 @@ private fun ColorPickerDialog(
     var textColor by remember { mutableStateOf(localColor.toHex()) }
     // A possible parsing error with the textColor
     var colorError by remember { mutableStateOf<String?>(null) }
-    println("color: $color")
-    println("localColor: $localColor")
 
     AlertDialog(
         modifier = modifier,
@@ -262,7 +260,6 @@ private fun ColorPickerDialog(
                             firstRender = false
                             controller.selectByColor(color.toColor(), true)
                         } else {
-                            println("picked color wheel: ${env.color}")
                             localColor = Color(env.color.toArgb())
                             textColor = localColor.toHex()
                             // The color wheel will always have a valid color
@@ -292,7 +289,6 @@ private fun ColorPickerDialog(
                                 val color = Color(it)
                                 localColor = color
                                 controller.selectByColor(color.toColor(), true)
-                                println("Good color")
                                 null
                             } catch (e: NumberFormatException) {
                                 e.message ?: "Invalid format"

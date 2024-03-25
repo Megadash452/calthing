@@ -12,14 +12,16 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.ui.CalendarPermission
 
 /** Outputs a list of all calendars that are synced on the user has on the device with the calendar provider.
- * @param internal If `true`, the returned list will only contain Calendars created by the app.
+ * @param internal If `true`, the returned list will only contain Calendars *created by this app*.
  *                 Otherwise it will exclude these calendars*/
 fun CalendarPermission.Dsl.userCalendars(internal: Boolean = true): List<UserCalendarListItem>? {
-    // Whether teh cursor will include (=) or exclude (!=) calendars with ACCOUNT_TYPE
-    val op = if (internal) "=" else "!="
+    // Calendars created by this app are those with LOCAL account type and this app's account name
+    // Whether the cursor will include or exclude calendars owned by this App
+    val op = if (internal) "" else "NOT"
     val cur = this.context.getCursor(
         CalendarContract.Calendars.CONTENT_URI, UserCalendarListItem.Projection,
-        "((${CalendarContract.Calendars.ACCOUNT_TYPE} $op ?))", arrayOf(this.context.getString(R.string.account_type))
+        "$op ((${CalendarContract.Calendars.ACCOUNT_TYPE} = ?) AND (${CalendarContract.Calendars.ACCOUNT_NAME} = ?))",
+        arrayOf(CalendarContract.ACCOUNT_TYPE_LOCAL, this.context.getString(R.string.account_name))
     ) ?: return null
 
     val result = List(cur.count) {
@@ -60,11 +62,13 @@ data class UserCalendarListItem(
 /** @return Returns the basic data about the Calendar so it can be added to the *`userCalendars`* list.
  *          **`Null`** if adding the calendar failed. */
 fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): UserCalendarListItem? {
-    val newCalUri = this.context.contentResolver.insert(this.context.asSyncAdapter(CalendarContract.Calendars.CONTENT_URI), ContentValues().apply {
+    val accountName = this.context.getString(R.string.account_name)
+
+    val newCalUri = this.context.contentResolver.insert(CalendarContract.Calendars.CONTENT_URI.asSyncAdapter(accountName), ContentValues().apply {
         // Required
-        this.put(CalendarContract.Calendars.ACCOUNT_TYPE, this@newCalendar.context.getString(R.string.account_type))
-        this.put(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
-        this.put(CalendarContract.Calendars.OWNER_ACCOUNT, ACCOUNT_NAME)
+        this.put(CalendarContract.Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL)
+        this.put(CalendarContract.Calendars.ACCOUNT_NAME, accountName)
+        this.put(CalendarContract.Calendars.OWNER_ACCOUNT, accountName)
         this.put(CalendarContract.Calendars.NAME, name) // Don't really know what this is for
         this.put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, name)
         this.put(CalendarContract.Calendars.CALENDAR_COLOR, color.toColor().toArgb())
@@ -94,7 +98,7 @@ fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): UserCalendar
     return UserCalendarListItem(
         id = ContentUris.parseId(newCalUri),
         name = name,
-        accountName = ACCOUNT_NAME,
+        accountName = accountName,
         color = color
     )
 }
@@ -105,7 +109,7 @@ fun CalendarPermission.Dsl.deleteCalendar(id: Long) {
     // TODO: show snack-bar with undo button
     // TODO: delete only if sync adapter (UI will not show button if cant delete)
     val calName = this.context.getCursor(
-        ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, id),
+        CalendarContract.Calendars.CONTENT_URI.withId(id),
         UserCalendarListItem.Projection,
     )?.let { cursor ->
         cursor.moveToFirst()
@@ -115,8 +119,10 @@ fun CalendarPermission.Dsl.deleteCalendar(id: Long) {
     } ?: "UNKNOWN"
 
     this.context.contentResolver.delete(
-        this.context.asSyncAdapter(ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, id)),
-        null, null
+       CalendarContract.Calendars.CONTENT_URI
+           .withId(id)
+           .asSyncAdapter(this.context.getString(R.string.account_name)),
+       null, null
     )
     Toast.makeText(context, "Deleted Calendar \"$calName\"", Toast.LENGTH_SHORT).show()
 }
@@ -125,6 +131,7 @@ fun CalendarPermission.Dsl.deleteCalendar(id: Long) {
  * @returns A list of calendar data of the Calendars that were successfully added.
  *          **`Null`** if there was an error setting up the contentProvider cursor. */
 fun CalendarPermission.Dsl.copyFromDevice(ids: List<Long>): List<UserCalendarListItem>? {
+    val accountName = this.context.getString(R.string.account_name)
     val successCals = mutableListOf<UserCalendarListItem>()
     val client = this.context.contentResolver.acquireContentProviderClient(CalendarContract.CONTENT_URI) ?: return null
     val cursor = this.context.getCursor(
@@ -156,16 +163,16 @@ fun CalendarPermission.Dsl.copyFromDevice(ids: List<Long>): List<UserCalendarLis
                 cursor.getStringOrNull(entry.ordinal)?.let { this.put(entry.column, it) }
             }
         }
-        data.put(CalendarContract.Calendars.ACCOUNT_TYPE, this.context.getString(R.string.account_type))
-        data.put(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
-        data.put(CalendarContract.Calendars.OWNER_ACCOUNT, ACCOUNT_NAME)
+        data.put(CalendarContract.Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL)
+        data.put(CalendarContract.Calendars.ACCOUNT_NAME, accountName)
+        data.put(CalendarContract.Calendars.OWNER_ACCOUNT, accountName)
         // data.put(CalendarContract.Calendars._SYNC_ID, ???)
         // Write the calendar data to the content provider
-        client.insert(this.context.asSyncAdapter(CalendarContract.Calendars.CONTENT_URI), data)?.let { newCal ->
+        client.insert(CalendarContract.Calendars.CONTENT_URI.asSyncAdapter(accountName), data)?.let { newCal ->
             successCals.add(UserCalendarListItem(
                 id = ContentUris.parseId(newCal),
                 name = data.getAsString(CopyCalendarsProjection.DISPLAY_NAME.column),
-                accountName = ACCOUNT_NAME,
+                accountName = accountName,
                 // color = data[CalendarContract.Calendars.CALENDAR_COLOR]
                 color = Color(data.getAsInteger(CopyCalendarsProjection.COLOR.column))
             ))
