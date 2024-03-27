@@ -5,26 +5,72 @@ import android.content.ContentValues
 import android.provider.CalendarContract
 import android.util.Log
 import androidx.compose.ui.graphics.toArgb
+import androidx.core.database.getLongOrNull
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.R
 import me.marti.calprovexample.ui.CalendarPermission
 
-data class UserCalendarListItem(
+/** Display data about a calendar to the user.
+ * @see ExternalUserCalendar
+ * @see InternalUserCalendar */
+open class UserCalendarListItem(
     val id: Long,
     val name: String,
     val accountName: String,
-    val color: Color
+    val color: Color,
 )
-/** Outputs a list of all calendars that are synced on the user has on the device with the calendar provider.
- * @param internal If `true`, the returned list will only contain Calendars *created by this app*.
- *                 Otherwise it will exclude these calendars*/
-fun CalendarPermission.Dsl.userCalendars(internal: Boolean = true): List<UserCalendarListItem>? {
-    // Calendars created by this app are those with LOCAL account type and this app's account name
+// Two sides of the same coin.
+/** Display data about a calendar that the user can import (copy) to sync with this App.
+ *
+ * See the important field [importedTo]. */
+class ExternalUserCalendar(
+    id: Long,
+    name: String,
+    accountName: String,
+    color: Color,
+    /** The **name** of the Calendar that was created (*imported*, copied) from this one (if any).
+     *
+     * Obtained from a list of Calendars from [`internalUserCalendars()`][internalUserCalendars]
+     * by finding a Calendar with its [**`importedFrom`**][InternalUserCalendar.importedFrom] field
+     * set with the [`ID`][InternalUserCalendar.id] of this Calendar.
+     * Convert the calendars obtained from [`externalUserCalendars()`][externalUserCalendars] to this class.
+     *
+     * ### Example
+     * ```kt
+     * val appCalendars = internalUserCalendars()!!
+     * val otherCalendars = externalUserCalendars()!!
+     *     .map { cal -> ExternalUserCalendar(
+     *         cal,
+     *         appCalendars.find { iCal -> cal.id == iCal.importedFrom }?.name
+     *     ) }
+     * ``` */
+    val importedTo: String?
+) : UserCalendarListItem(id, name, accountName, color) {
+    constructor(parent: UserCalendarListItem, importedTo: String?)
+        : this(parent.id, parent.name, parent.accountName, parent.color, importedTo)
+}
+/** Display data about a calendar that the user imported from the system to sync with this App. */
+class InternalUserCalendar(
+    id: Long,
+    name: String,
+    accountName: String,
+    color: Color,
+    /** The **ID** of the external Calendar that was used to create this one (if any).
+     * See [IMPORTED_FROM_COLUMN]. */
+    val importedFrom: Long?
+) : UserCalendarListItem(id, name, accountName, color)
+
+/** Get a list of Calendars the user has on their device that can be *imported* to sync with this App.
+ *
+ * The resulting Calendars can then be converted to [ExternalUserCalendar].
+ * For that, see [ExternalUserCalendar.importedTo].
+ * @returns **NULL** on error. */
+fun CalendarPermission.Dsl.externalUserCalendars(): List<UserCalendarListItem>? {
+    // Calendars created by other apps (external
     // Whether the cursor will include or exclude calendars owned by this App
-    val op = if (internal) "" else "NOT"
     val cur = this.context.getCursor(
         CalendarContract.Calendars.CONTENT_URI, DisplayCalendarProjection,
-        "$op ((${CalendarContract.Calendars.ACCOUNT_TYPE} = ?) AND (${CalendarContract.Calendars.ACCOUNT_NAME} = ?))",
+        "NOT ((${CalendarContract.Calendars.ACCOUNT_TYPE} = ?) AND (${CalendarContract.Calendars.ACCOUNT_NAME} = ?))",
         arrayOf(CalendarContract.ACCOUNT_TYPE_LOCAL, this.context.getString(R.string.account_name))
     ) ?: return null
 
@@ -43,9 +89,37 @@ fun CalendarPermission.Dsl.userCalendars(internal: Boolean = true): List<UserCal
     return result
 }
 
+/** Get a list of Calendars owned by this App that the user can sync.
+ * @returns **NULL** on error. */
+fun CalendarPermission.Dsl.internalUserCalendars(): List<InternalUserCalendar>? {
+    // Calendars created by this app (internal) are those with LOCAL account type and this app's account name
+    val cur = this.context.getCursor(
+        CalendarContract.Calendars.CONTENT_URI, DisplayCalendarProjection,
+        "(${CalendarContract.Calendars.ACCOUNT_TYPE} = ?) AND (${CalendarContract.Calendars.ACCOUNT_NAME} = ?)",
+        arrayOf(CalendarContract.ACCOUNT_TYPE_LOCAL, this.context.getString(R.string.account_name))
+    ) ?: return null
+
+    val result = List(cur.count) {
+        cur.moveToNext()
+        InternalUserCalendar(
+            id = cur.getLong(DisplayCalendarProjection.ID.ordinal),
+            name = cur.getString(DisplayCalendarProjection.DISPLAY_NAME.ordinal),
+            accountName = cur.getString(DisplayCalendarProjection.ACCOUNT_NAME.ordinal),
+            // The stored color is a 32bit ARGB, but the alpha is ignored.
+            color = Color(cur.getInt(DisplayCalendarProjection.COLOR.ordinal)),
+            // Internal calendars could have IMPORTED_FROM set. Ignore if field if is not internal.
+            importedFrom = cur.getLongOrNull(DisplayCalendarProjection.IMPORTED_FROM.ordinal)
+        )
+    }
+
+    cur.close()
+    return result
+}
+
+
 /** @return Returns the basic data about the Calendar so it can be added to the *`userCalendars`* list.
  *          **`Null`** if adding the calendar failed. */
-fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): UserCalendarListItem? {
+fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): InternalUserCalendar? {
     val accountName = this.context.getString(R.string.account_name)
 
     val newCalUri = this.context.contentResolver.insert(CalendarContract.Calendars.CONTENT_URI.asSyncAdapter(accountName), ContentValues().apply {
@@ -78,11 +152,12 @@ fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): UserCalendar
         return@newCalendar null
     }
 
-    return UserCalendarListItem(
+    return InternalUserCalendar(
         id = ContentUris.parseId(newCalUri),
         name = name,
         accountName = accountName,
-        color = color
+        color = color,
+        importedFrom = null
     )
 }
 
@@ -129,9 +204,9 @@ fun CalendarPermission.Dsl.deleteCalendar(id: Long): Boolean {
  *
  * @returns A list of calendar data of the Calendars that were successfully added.
  *          **`Null`** if there was an error setting up the contentProvider cursor. */
-fun CalendarPermission.Dsl.copyFromDevice(ids: List<Long>): List<UserCalendarListItem>? {
+fun CalendarPermission.Dsl.copyFromDevice(ids: List<Long>): List<InternalUserCalendar>? {
     val accountName = this.context.getString(R.string.account_name)
-    val successCals = mutableListOf<UserCalendarListItem>()
+    val successCals = mutableListOf<InternalUserCalendar>()
     val client = this.context.contentResolver.acquireContentProviderClient(CalendarContract.CONTENT_URI) ?: return null
     val cursor = client.getCursor(
         CalendarContract.Calendars.CONTENT_URI, CopyCalendarsProjection,
@@ -166,12 +241,13 @@ fun CalendarPermission.Dsl.copyFromDevice(ids: List<Long>): List<UserCalendarLis
         }
         // Write the calendar data to the content provider
         client.insert(CalendarContract.Calendars.CONTENT_URI.asSyncAdapter(accountName), data)?.let { newCal ->
-            successCals.add(UserCalendarListItem(
+            successCals.add(InternalUserCalendar(
                 id = ContentUris.parseId(newCal),
                 name = data.getAsString(CopyCalendarsProjection.DISPLAY_NAME.column),
                 accountName = accountName,
                 // color = data[CalendarContract.Calendars.CALENDAR_COLOR]
-                color = Color(data.getAsInteger(CopyCalendarsProjection.COLOR.column))
+                color = Color(data.getAsInteger(CopyCalendarsProjection.COLOR.column)),
+                importedFrom = data.getAsLong(IMPORTED_FROM_COLUMN)
             ))
         } ?: run {
             Log.e("copyFromDevice", "Failed to insert Calendar from copied data.")

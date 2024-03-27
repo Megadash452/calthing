@@ -48,7 +48,7 @@ import com.github.skydoves.colorpicker.compose.HsvColorPicker
 import com.github.skydoves.colorpicker.compose.rememberColorPickerController
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.GroupedList
-import me.marti.calprovexample.calendar.UserCalendarListItem
+import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
 enum class Actions {
@@ -89,12 +89,13 @@ fun NewCalendarAction(modifier: Modifier = Modifier, close: () -> Unit, submit: 
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column {
-                        Box(Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .background(Color(color).toColor())
-                            .border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                            .clickable { pickColor = true }
+                        Box(
+                            Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(Color(color).toColor())
+                                .border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                .clickable { pickColor = true }
                         )
                     }
                     Spacer(Modifier.size(8.dp))
@@ -120,7 +121,7 @@ fun NewCalendarAction(modifier: Modifier = Modifier, close: () -> Unit, submit: 
  *               User can select multiple calendars, aka a `List<Long>` */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<String, UserCalendarListItem>, close: () -> Unit, submit: (List<Long>) -> Unit) {
+fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<String, ExternalUserCalendar>, close: () -> Unit, submit: (List<Long>) -> Unit) {
     val selectedIds = remember { mutableStateMapOf<Long, Unit>() }
 
     AlertDialog(
@@ -140,24 +141,29 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 calendars.forEach { (accountName, group) ->
                     this.stickyHeader { StickyHeader(text = accountName, leadingContent = {
+                        // Calendars that have importedTo set cannot be selected
+                        val selectable = group.filter { cal -> cal.importedTo == null }
                         // Mapping of whether some, all, or none of the group's calendars are in selectedIds.
-                        val selected = group.map { cal -> selectedIds.containsKey(cal.id) }
+                        val selected = selectable.map { cal -> selectedIds.containsKey(cal.id) }
                         TriStateCheckbox(
                             modifier = Modifier.size(24.dp),
+                            enabled = selectable.isNotEmpty(), // There are no items to select
                             state =
+                                if (selectable.isEmpty())
+                                    ToggleableState.Off
                                 // All items of the group are selected if all their IDs are in the selectedIds Set.
-                                if (selected.all { it })
+                                else if (selected.all { it }) // All items are selected
                                     ToggleableState.On
-                                else if (selected.contains(true))
+                                else if (selected.contains(true)) // Any items are selected
                                     ToggleableState.Indeterminate
                                 else ToggleableState.Off,
                             onClick = {
                                 // Deselect all if all are selected
                                 if (selected.all { it })
-                                    group.forEach { cal -> selectedIds.remove(cal.id) }
+                                    selectable.forEach { cal -> selectedIds.remove(cal.id) }
                                 // Otherwise, Select all.
                                 else
-                                    group.forEach { cal -> selectedIds[cal.id] = Unit }
+                                    selectable.forEach { cal -> selectedIds[cal.id] = Unit }
                             }
                         )
                     }) }
@@ -165,6 +171,7 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
                         Calendar(
                             color = cal.color, name = cal.name,
                             selected = selectedIds.containsKey(cal.id),
+                            importedTo = cal.importedTo,
                             onClick = {
                                 // Toggle the checkbox
                                 if (selectedIds.remove(cal.id) == null)
@@ -178,36 +185,61 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
     )
 }
 
+// TODO: doc
 @Composable
-private fun Calendar(modifier: Modifier = Modifier, color: Color, name: String, selected: Boolean, onClick: () -> Unit) {
+private fun Calendar(modifier: Modifier = Modifier, color: Color, name: String, selected: Boolean, importedTo: String? = null, onClick: () -> Unit) {
     // Color of the ListItem container when it is selected
-    val selectedColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
-    Row(
-        modifier
+    val enabled = importedTo == null
+    val content = @Composable {
+        Row(modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
-            .background(if (selected) selectedColor else androidx.compose.ui.graphics.Color.Transparent)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = rememberRipple(
-                    color = if (selected) MaterialTheme.colorScheme.surface else selectedColor
-                ),
-                onClick = onClick
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(
-                modifier = Modifier.scale(1.2f),
-                checked = selected,
-                onCheckedChange = { onClick() },
-                colors = CheckboxDefaults.colors().copy(
-                    checkedBoxColor = color.toColor(),
+            .let {
+                if (enabled) {
+                    val selectedColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
+                    it.background(if (selected) selectedColor else androidx.compose.ui.graphics.Color.Transparent)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = rememberRipple(
+                                color = if (selected) MaterialTheme.colorScheme.surface else selectedColor
+                            ),
+                            onClick = onClick
+                        )
+                } else it
+            },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    modifier = Modifier.scale(1.2f),
+                    enabled = enabled,
+                    checked = selected,
+                    onCheckedChange = { onClick() },
+                    colors = CheckboxDefaults.colors().copy(
+                        checkedBoxColor = color.toColor(),
+                    )
                 )
-            )
-            Text(name, style = MaterialTheme.typography.bodyMedium)
+                if (enabled)
+                    Text(name, style = MaterialTheme.typography.bodyMedium)
+                else
+                    Text(name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        // fontWeight = FontWeight.Light,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+            }
         }
+    }
+
+    if (enabled) {
+        content()
+    } else {
+        // Show a tooltip if calendar is already imported.
+        PlainTooltipBox(
+            tooltipContent = { Text("Already imported to '$importedTo'") },
+            content = content
+        )
     }
 }
 
@@ -316,23 +348,26 @@ private fun CopyCalendarPreview() {
     CalProvExampleTheme {
         CopyCalendarAction(
             calendars = arrayOf(
-                UserCalendarListItem(
+                ExternalUserCalendar(
                     id = 0,
                     name = "Personal",
                     accountName = acc,
-                    color = Color("cd58bb")
+                    color = Color("cd58bb"),
+                    importedTo = null
                 ),
-                UserCalendarListItem(
+                ExternalUserCalendar(
                     id = 1,
                     name = "Friend",
                     accountName = "Friend",
-                    color = Color("58cdc9")
+                    color = Color("58cdc9"),
+                    importedTo = "Other Friend"
                 ),
-                UserCalendarListItem(
+                ExternalUserCalendar(
                     id = 2,
                     name = "Work",
                     accountName = acc,
-                    color = Color("5080c8")
+                    color = Color("5080c8"),
+                    importedTo = null
                 )
             ).groupBy { cal -> cal.accountName },
             close = {}, submit = {}

@@ -30,7 +30,9 @@ enum class DisplayCalendarProjection(val s: String) {
     ID(CalendarContract.Calendars._ID),
     DISPLAY_NAME(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME),
     ACCOUNT_NAME(CalendarContract.Calendars.ACCOUNT_NAME),
-    COLOR(CalendarContract.Calendars.CALENDAR_COLOR);
+    COLOR(CalendarContract.Calendars.CALENDAR_COLOR),
+    /** Used only with Calendars owned by this app (internal). See [IMPORTED_FROM_COLUMN]. */
+    IMPORTED_FROM(IMPORTED_FROM_COLUMN);
 
     companion object : QueryProjection {
         override fun projectionArray(): Array<String> {

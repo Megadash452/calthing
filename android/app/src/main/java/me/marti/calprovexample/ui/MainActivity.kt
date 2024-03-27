@@ -38,11 +38,13 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.calendar.AllData
-import me.marti.calprovexample.calendar.UserCalendarListItem
+import me.marti.calprovexample.calendar.ExternalUserCalendar
+import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.calendar.copyFromDevice
 import me.marti.calprovexample.calendar.deleteCalendar
+import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
-import me.marti.calprovexample.calendar.userCalendars
+import me.marti.calprovexample.calendar.externalUserCalendars
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
@@ -56,7 +58,7 @@ class MainActivity : ComponentActivity() {
     /** Calendars are grouped by Account Name.
       * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
     @SuppressLint("MutableCollectionMutableState")
-    private var userCalendars: MutableState<SnapshotStateList<UserCalendarListItem>?> = mutableStateOf(null)
+    private var userCalendars: MutableState<SnapshotStateList<InternalUserCalendar>?> = mutableStateOf(null)
 
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -153,12 +155,18 @@ class MainActivity : ComponentActivity() {
                             )
                             Actions.CopyCalendar -> {
                                 // Get the Calendars in the device the user can copy
-                                var calendars by remember { mutableStateOf<GroupedList<String, UserCalendarListItem>?>(null) }
+                                var calendars by remember { mutableStateOf<GroupedList<String, ExternalUserCalendar>?>(null) }
                                 var error by remember { mutableStateOf(false) }
                                 this@MainActivity.calendarPermission.run {
                                     calendarsThread.submit {
-                                        this.userCalendars(false)?.let { cals ->
-                                            calendars = cals.groupBy { cal -> cal.accountName }
+                                        this.externalUserCalendars()?.let { cals ->
+                                            calendars = cals
+                                                // Find the calendar owned by this app (internal) that copied this calendar's data (if any).
+                                                .map { cal -> ExternalUserCalendar(
+                                                    cal,
+                                                    userCalendars.value?.find { iCal -> cal.id == iCal.importedFrom }?.name
+                                                ) }
+                                                .groupBy { cal -> cal.accountName }
                                         } ?: run {
                                             error = true
                                         }
@@ -223,7 +231,7 @@ class MainActivity : ComponentActivity() {
     private fun setUserCalendars() {
         this.calendarPermission.run {
             calendarsThread.execute {
-                this.userCalendars()?.also { cals ->
+                this.internalUserCalendars()?.also { cals ->
                     // Group calendars by Account Name
                     userCalendars.value = cals.toMutableStateList()
                 } ?: run {

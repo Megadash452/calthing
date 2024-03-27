@@ -700,7 +700,9 @@ fun StickyHeader(modifier: Modifier = Modifier, leadingContent: @Composable () -
         shape = MaterialTheme.shapes.small,
     ) {
         Row(
-            Modifier.padding(2.dp).padding(horizontal = 4.dp),
+            Modifier
+                .padding(2.dp)
+                .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
@@ -723,7 +725,7 @@ fun IconTextButton(modifier: Modifier = Modifier, icon: Painter, text: String, o
     }
 }
 
-/** The new `TooltipBox` is more verbose than the Plain/RichTooltipBox in the previous version... */
+/** The new `TooltipBox` is more verbose than the Plain/RichTooltipBox in the previous version...  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlainTooltipBox(modifier: Modifier = Modifier, tooltipContent: @Composable () -> Unit, content: @Composable () -> Unit) {
@@ -735,6 +737,7 @@ fun PlainTooltipBox(modifier: Modifier = Modifier, tooltipContent: @Composable (
         content = content
     )
 }
+
 
 
 @Preview(showBackground = true, widthDp = PREVIEW_WIDTH)
