@@ -28,7 +28,6 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import java.util.concurrent.Executors
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.GroupedList
@@ -171,18 +170,16 @@ class MainActivity : ComponentActivity() {
                                 var calendars by remember { mutableStateOf<GroupedList<String, ExternalUserCalendar>?>(null) }
                                 var error by remember { mutableStateOf(false) }
                                 this@MainActivity.calendarPermission.run {
-                                    calendarsThread.submit {
-                                        this.externalUserCalendars()?.let { cals ->
-                                            calendars = cals
-                                                // Find the calendar owned by this app (internal) that copied this calendar's data (if any).
-                                                .map { cal -> ExternalUserCalendar(
-                                                    cal,
-                                                    userCalendars.value?.find { iCal -> cal.id == iCal.importedFrom }?.name
-                                                ) }
-                                                .groupBy { cal -> cal.accountName }
-                                        } ?: run {
-                                            error = true
-                                        }
+                                    this.externalUserCalendars()?.let { cals ->
+                                        calendars = cals
+                                            // Find the calendar owned by this app (internal) that copied this calendar's data (if any).
+                                            .map { cal -> ExternalUserCalendar(
+                                                cal,
+                                                userCalendars.value?.find { iCal -> cal.id == iCal.importedFrom }?.name
+                                            ) }
+                                            .groupBy { cal -> cal.accountName }
+                                    } ?: run {
+                                        error = true
                                     }
                                 }
 
@@ -233,37 +230,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** System Calendar operations can block the main thread, so delegate them to another thread.
-     *  Use **`calendarsThread.execute`** inside a *`calendarPermission.run`* block.
-     *
-     *  Using *Worker threads* instead of `AsyncTask` and `Loader`s because I understand it better.*/
-    // TODO: might create a DSL, and make the CalendarPermissionDSL depend on that DSL.
-    // TODO: or might put the Executor in the Calendar permission?
-    // TODO: document that cant make toasts in this thread
-    private val calendarsThread = Executors.newSingleThreadExecutor()
-
     private fun setUserCalendars() {
         this.calendarPermission.run {
-            calendarsThread.execute {
-                this.internalUserCalendars()?.also { cals ->
-                    // Group calendars by Account Name
-                    userCalendars.value = cals.toMutableStateList()
-                } ?: run {
-                    println("Couldn't get user calendars")
-                }
+            this.internalUserCalendars()?.also { cals ->
+                // Group calendars by Account Name
+                userCalendars.value = cals.toMutableStateList()
+            } ?: run {
+                println("Couldn't get user calendars")
             }
         }
     }
 
     private fun newCalendar(name: String, color: Color) {
         this.calendarPermission.run {
-            calendarsThread.execute {
-                this.newCalendar(name, color)?.let { newCal ->
-                    // Add the Calendar to the list
-                    userCalendars.value?.add(newCal) ?: run {
-                        // Initialize the list if it hasn't been initialized already
-                        this@MainActivity.setUserCalendars()
-                    }
+            this.newCalendar(name, color)?.let { newCal ->
+                // Add the Calendar to the list
+                userCalendars.value?.add(newCal) ?: run {
+                    // Initialize the list if it hasn't been initialized already
+                    this@MainActivity.setUserCalendars()
                 }
             }
         }
@@ -271,21 +255,19 @@ class MainActivity : ComponentActivity() {
 
     private fun editCalendar(id: Long, newName: String, newColor: Color) {
         this.calendarPermission.run {
-            calendarsThread.execute {
-                if (this.editCalendar(id, newName, newColor)) {
-                    userCalendars.value?.let { calendars ->
-                        val old = calendars.find { cal -> cal.id == id }
-                            ?: throw Exception("Could not find Calendar with ID=$id in `userCalendars`")
-                        val new = old.copy(
-                            name = newName,
-                            color = newColor
-                        )
-                        calendars.remove(old)
-                        calendars.add(new)
-                    } ?: run {
-                        // Initialize the list if it hasn't been initialized already
-                        this@MainActivity.setUserCalendars()
-                    }
+            if (this.editCalendar(id, newName, newColor)) {
+                userCalendars.value?.let { calendars ->
+                    val old = calendars.find { cal -> cal.id == id }
+                        ?: throw Exception("Could not find Calendar with ID=$id in `userCalendars`")
+                    val new = old.copy(
+                        name = newName,
+                        color = newColor
+                    )
+                    calendars.remove(old)
+                    calendars.add(new)
+                } ?: run {
+                    // Initialize the list if it hasn't been initialized already
+                    this@MainActivity.setUserCalendars()
                 }
             }
         }
@@ -293,13 +275,11 @@ class MainActivity : ComponentActivity() {
 
     private fun deleteCalendar(id: Long) {
         this.calendarPermission.run {
-            calendarsThread.execute {
-                if (this.deleteCalendar(id)) {
-                    // Remove the deleted Calendar from the list
-                    userCalendars.value?.removeIf { cal -> cal.id == id } ?: run {
-                        // Initialize the list if it hasn't been initialized already
-                        this@MainActivity.setUserCalendars()
-                    }
+            if (this.deleteCalendar(id)) {
+                // Remove the deleted Calendar from the list
+                userCalendars.value?.removeIf { cal -> cal.id == id } ?: run {
+                    // Initialize the list if it hasn't been initialized already
+                    this@MainActivity.setUserCalendars()
                 }
             }
         }
@@ -307,13 +287,11 @@ class MainActivity : ComponentActivity() {
 
     private fun copyCalendars(ids: List<Long>) {
         this.calendarPermission.run {
-            calendarsThread.execute {
-                this.copyFromDevice(ids)?.let { newCals ->
-                    // Add the Calendars to the list
-                    userCalendars.value?.addAll(newCals) ?: run {
-                        // Initialize the list if it hasn't been initialized already
-                        this@MainActivity.setUserCalendars()
-                    }
+            this.copyFromDevice(ids)?.let { newCals ->
+                // Add the Calendars to the list
+                userCalendars.value?.addAll(newCals) ?: run {
+                    // Initialize the list if it hasn't been initialized already
+                    this@MainActivity.setUserCalendars()
                 }
             }
         }

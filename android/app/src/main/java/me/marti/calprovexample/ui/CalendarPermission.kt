@@ -17,6 +17,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import me.marti.calprovexample.R
+import java.util.concurrent.Executors
 
 private const val READ_CALENDAR_PERMISSION = "android.permission.READ_CALENDAR"
 private const val WRITE_CALENDAR_PERMISSION = "android.permission.WRITE_CALENDAR"
@@ -30,6 +31,9 @@ private const val WRITE_CALENDAR_PERMISSION = "android.permission.WRITE_CALENDAR
  * The only way to obtain the **`Dsl`** is if the permission is granted,
  * so writing function this way ensures they can only be called if the permission is granted.
  * The **`Dsl`** contains the activity's `Context` for convenience.
+ *
+ * Because most of these actions are expected to block the thread they run on,
+ * this object crates a *new thread* to run all the actions so that the UI thread can keep running.
  *
  * ## Rationale Dialog
  * The system sometimes determines that the Activity should show a dialog explaining to the user
@@ -79,7 +83,7 @@ private const val WRITE_CALENDAR_PERMISSION = "android.permission.WRITE_CALENDAR
  *         a = "Hi!!!"
  *         ...
  *     }
- *     println(a)
+ *     println(a) // null
  * }
  * ```
  *
@@ -93,7 +97,7 @@ private const val WRITE_CALENDAR_PERMISSION = "android.permission.WRITE_CALENDAR
  *         a = "Hi!!!"
  *         ...
  *     }
- *     Text(a)
+ *     Text(a) // Hi!!!
  * }
  * ```
  * This can be used as a pseudo-return value for the function being run.
@@ -104,6 +108,12 @@ class CalendarPermission(
     class Dsl internal constructor(val context: Context)
 
     private lateinit var dsl: Dsl
+
+    /** System Calendar operations can block the main thread, so delegate them to another thread.
+     *  Use **`calendarsThread.execute`** inside a *`calendarPermission.run`* block.
+     *
+     *  Using *Worker threads* instead of `AsyncTask` and `Loader`s because I understand it better.*/
+    private val calendarThread = Executors.newSingleThreadExecutor()
 
     private val requestLauncher = this.activity.registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -119,7 +129,7 @@ class CalendarPermission(
             }
 
         currentAction?.let { action ->
-            action(this.dsl)
+            this.calendarThread.execute { action(this.dsl) }
         } ?: run {
             throw Exception("CalendarPermission.currentAction was not set before requesting permission")
         }
@@ -132,7 +142,7 @@ class CalendarPermission(
         }
 
         if (this.hasPermission()) {
-            action(this.dsl)
+            this.calendarThread.execute { action(this.dsl) }
         } else {
             // Set the action that will be run after the user grants the permissions
             currentAction = action
