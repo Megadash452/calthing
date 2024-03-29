@@ -72,7 +72,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -91,7 +90,8 @@ import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.R
 import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
-import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.Color
+import me.marti.calprovexample.Color as InternalColor
 
 const val OUTER_PADDING = 8
 private const val LIST_PADDING = 4
@@ -99,7 +99,7 @@ private const val LIST_ITEM_ELEVATION = 1
 private const val LIST_ITEM_SPACING = 4
 private const val PREVIEW_WIDTH = 300
 
-private val TOP_BAR_COLOR = ComposeColor(0)
+private val TOP_BAR_COLOR = Color(0)
 private val TOP_BAR_SCROLLER_COLOR
     @Composable get() = MaterialTheme.colorScheme.primaryContainer
 private val TOP_BAR_CONTENT_COLOR
@@ -536,6 +536,7 @@ fun Calendars(
     calPermsClick: () -> Unit = {},
     calIsSynced: (Long) -> Boolean = { false },
     onCalSwitchClick: (Long, Boolean) -> Unit = { _, _ -> },
+    editCalendar: (Long, String, InternalColor) -> Unit = { _, _, _ -> },
     deleteCalendar: (Long) -> Unit = {}
 ) {
     @Composable
@@ -595,6 +596,7 @@ fun Calendars(
                                 expandedItem = if (expandedItem == cal.id) null else cal.id
                             },
                             onSwitchClick = { checked -> onCalSwitchClick(cal.id, checked) },
+                            editClick = { editCalendar(cal.id, cal.name, cal.color) },
                             deleteClick = { deleteCalendar(cal.id) }
                         )
                     }
@@ -611,6 +613,7 @@ private fun CalendarListItem(
     expanded: Boolean = false,
     expandedToggle: () -> Unit = {},
     onSwitchClick: (Boolean) -> Unit = {},
+    editClick: () -> Unit = {},
     deleteClick: () -> Unit = {},
 ) {
     ListItem(
@@ -636,7 +639,7 @@ private fun CalendarListItem(
                     HorizontalDivider()
                     Row {
                         val buttonSize = 36.dp
-                        IconButton(modifier = Modifier.size(buttonSize), onClick = { /*TODO*/ }) {
+                        IconButton(modifier = Modifier.size(buttonSize), onClick = editClick) {
                             Icon(Icons.Default.Create, "Edit Calendar")
                         }
                         IconButton(modifier = Modifier.size(buttonSize), onClick = deleteClick) {

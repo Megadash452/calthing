@@ -42,6 +42,7 @@ import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.calendar.copyFromDevice
 import me.marti.calprovexample.calendar.deleteCalendar
+import me.marti.calprovexample.calendar.editCalendar
 import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
 import me.marti.calprovexample.calendar.externalUserCalendars
@@ -136,6 +137,9 @@ class MainActivity : ComponentActivity() {
                                     calPermsClick =  { this@MainActivity.setUserCalendars() },
                                     calIsSynced = { id -> syncedCals.contains(id) },
                                     onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) },
+                                    editCalendar = { id, name, color ->
+                                        openAction = Actions.EditCalendar(id, name, color)
+                                    },
                                     deleteCalendar = { id ->
                                         this@MainActivity.deleteCalendar(id)
                                     }
@@ -153,6 +157,15 @@ class MainActivity : ComponentActivity() {
                                 close = { openAction = null },
                                 submit = { name, color -> this@MainActivity.newCalendar(name, color) }
                             )
+                            is Actions.EditCalendar -> {
+                                val data = openAction as Actions.EditCalendar
+                                EditCalendarAction(
+                                    name = data.name,
+                                    color = data.color,
+                                    close = { openAction = null },
+                                    submit = { newName, newColor -> this@MainActivity.editCalendar(data.id, newName, newColor) }
+                                )
+                            }
                             Actions.CopyCalendar -> {
                                 // Get the Calendars in the device the user can copy
                                 var calendars by remember { mutableStateOf<GroupedList<String, ExternalUserCalendar>?>(null) }
@@ -226,6 +239,7 @@ class MainActivity : ComponentActivity() {
      *  Using *Worker threads* instead of `AsyncTask` and `Loader`s because I understand it better.*/
     // TODO: might create a DSL, and make the CalendarPermissionDSL depend on that DSL.
     // TODO: or might put the Executor in the Calendar permission?
+    // TODO: document that cant make toasts in this thread
     private val calendarsThread = Executors.newSingleThreadExecutor()
 
     private fun setUserCalendars() {
@@ -247,6 +261,29 @@ class MainActivity : ComponentActivity() {
                 this.newCalendar(name, color)?.let { newCal ->
                     // Add the Calendar to the list
                     userCalendars.value?.add(newCal) ?: run {
+                        // Initialize the list if it hasn't been initialized already
+                        this@MainActivity.setUserCalendars()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun editCalendar(id: Long, newName: String, newColor: Color) {
+        this.calendarPermission.run {
+            calendarsThread.execute {
+                if (this.editCalendar(id, newName, newColor)) {
+                    userCalendars.value?.let { calendars ->
+                        val old = calendars.find { cal -> cal.id == id }
+                            ?: throw Exception("Could not find Calendar with ID=$id in `userCalendars`")
+                        val new = old.copy(
+                            name = newName,
+                            color = newColor
+                        )
+                        calendars.remove(old)
+                        calendars.add(new)
+                    } ?: run {
+                        // Initialize the list if it hasn't been initialized already
                         this@MainActivity.setUserCalendars()
                     }
                 }
@@ -259,7 +296,8 @@ class MainActivity : ComponentActivity() {
             calendarsThread.execute {
                 if (this.deleteCalendar(id)) {
                     // Remove the deleted Calendar from the list
-                    userCalendars.value?.removeIf { cal -> cal.id == id }  ?: run {
+                    userCalendars.value?.removeIf { cal -> cal.id == id } ?: run {
+                        // Initialize the list if it hasn't been initialized already
                         this@MainActivity.setUserCalendars()
                     }
                 }
@@ -273,6 +311,7 @@ class MainActivity : ComponentActivity() {
                 this.copyFromDevice(ids)?.let { newCals ->
                     // Add the Calendars to the list
                     userCalendars.value?.addAll(newCals) ?: run {
+                        // Initialize the list if it hasn't been initialized already
                         this@MainActivity.setUserCalendars()
                     }
                 }

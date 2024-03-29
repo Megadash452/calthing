@@ -58,7 +58,18 @@ class InternalUserCalendar(
     /** The **ID** of the external Calendar that was used to create this one (if any).
      * See [IMPORTED_FROM_COLUMN]. */
     val importedFrom: Long?
-) : UserCalendarListItem(id, name, accountName, color)
+) : UserCalendarListItem(id, name, accountName, color) {
+    fun copy(id: Long? = null, name: String? = null, accountName: String? = null, color: Color? = null, importedFrom: Long? = null): InternalUserCalendar {
+        return InternalUserCalendar(
+            id = id ?: this.id,
+            name = name ?: this.name,
+            accountName = accountName ?: this.accountName,
+            color = color ?: this.color,
+            importedFrom = importedFrom ?: this.importedFrom
+        )
+    }
+}
+
 
 /** Get a list of Calendars the user has on their device that can be *imported* to sync with this App.
  *
@@ -161,13 +172,32 @@ fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): InternalUser
     )
 }
 
+fun CalendarPermission.Dsl.editCalendar(id: Long, newName: String, newColor: Color): Boolean {
+    val success = this.context.contentResolver.update(
+        CalendarContract.Calendars.CONTENT_URI
+            .withId(id)
+            .asSyncAdapter(this.context.getString(R.string.account_name)),
+        ContentValues().apply {
+            this.put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, newName)
+            this.put(CalendarContract.Calendars.CALENDAR_COLOR, newColor.toColor().toArgb())
+        },
+        null, null
+    ) != 0
+
+    if (success)
+        Log.i("editCalendar", "Updated Calendar (ID=$id) to \"$newName\", with color $newColor")
+    else
+        Log.e("editCalendar", "Failed to update Calendar with ID=$id")
+
+    return success
+}
+
 /** Delete a Calendar from the System ContentProvider.
  * @return **`true`** if the Calendar was successfully deleted, **`false`** if it wasn't. */
 fun CalendarPermission.Dsl.deleteCalendar(id: Long): Boolean {
     // Events are automatically deleted with the calendar
     // TODO: show confirmation to delete
     // TODO: show snack-bar with undo button
-    // TODO: delete only if sync adapter (UI will not show button if cant delete)
     val client = this.context.getClient()
     val calName = client.getCursor(
         CalendarContract.Calendars.CONTENT_URI.withId(id),

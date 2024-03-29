@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -40,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -51,16 +54,68 @@ import me.marti.calprovexample.GroupedList
 import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
-enum class Actions {
-    NewCalendar, CopyCalendar, ImportFile
+const val DEFAULT_CALENDAR_COLOR = 0x68acef
+
+// Sum-type-like enum
+sealed class Actions private constructor() {
+    object NewCalendar: Actions()
+    class EditCalendar(val id: Long, val name: String, val color: Color): Actions()
+    object CopyCalendar: Actions()
+    object ImportFile: Actions()
 }
 
+/** Show a dialog to **Create** the info of a new Calendar for this App.
+ *
+ * @param close Stop showing the dialog.
+ * @param submit Function that runs when the "Select" button is clicked.
+ * Takes the display *name* and *color* of the new Calendar.
+ * [close] is always called before *submitting*.
+ *
+ * @see EditCalendarAction */
 @Composable
 fun NewCalendarAction(modifier: Modifier = Modifier, close: () -> Unit, submit: (String, Color) -> Unit) {
-    var name by rememberSaveable { mutableStateOf("") }
-    var color by rememberSaveable { mutableIntStateOf(0x68acef) }
+    EditCalendarAction(
+        modifier = modifier,
+        title = { Text("Create new Calendar") },
+        submitButtonContent = { Text("Create") },
+        name = "",
+        color = Color(DEFAULT_CALENDAR_COLOR),
+        close = close,
+        submit = submit
+    )
+}
+
+/** Show a dialog to **Edit** the info of an existing Calendar that is owned by this App.
+ *
+ * Is used to *edit* an existing one, or to *create* a new one in [NewCalendarAction].
+ *
+ * @param title The text of the title header of the Dialog.
+ * @param submitButtonContent The text for the *submit* button.
+ * @param name The initial display *name* of the Calendar being edited.
+ * @param color The initial *color* of the Calendar being edited.
+ * @param close Stop showing the dialog.
+ * @param submit Handle the data submitted by the user. [close] is always called before this.
+ *
+ * @see NewCalendarAction */
+@Composable
+fun EditCalendarAction(
+    modifier: Modifier = Modifier,
+    title: @Composable () -> Unit = { Text("Edit Calendar") },
+    submitButtonContent: @Composable RowScope.() -> Unit = { Text("Save") },
+    name: String,
+    color: Color,
+    close: () -> Unit,
+    submit: (String, Color) -> Unit
+) {
+    // The name of the Calendar. Is the string argument of the `submit` function
+    @Suppress("NAME_SHADOWING")
+    var name by rememberSaveable { mutableStateOf(name) }
+    @Suppress("NAME_SHADOWING")
+    var color by rememberSaveable { mutableIntStateOf(color.toColor().toArgb()) }
     var nameError by rememberSaveable { mutableStateOf(false) }
+    // Whether to show ColorPicker or the Edit dialog
     var pickColor by rememberSaveable { mutableStateOf(false) }
+    // Does all the checks before calling `submit`
     val onSubmit = {
         nameError = name.isBlank()
 
@@ -78,26 +133,25 @@ fun NewCalendarAction(modifier: Modifier = Modifier, close: () -> Unit, submit: 
     } else {
         AlertDialog(
             modifier = modifier,
-            title = { Text("Create new Calendar") },
+            title = title,
             onDismissRequest = close,
             dismissButton = {
                 TextButton(onClick = close) { Text("Cancel") }
             },
             confirmButton = {
-                FilledTonalButton(onClick = onSubmit, enabled = !nameError) { Text("Create") }
+                FilledTonalButton(onClick = onSubmit, enabled = !nameError, content = submitButtonContent)
             },
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Box(
-                            Modifier
-                                .size(52.dp)
-                                .clip(CircleShape)
-                                .background(Color(color).toColor())
-                                .border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                                .clickable { pickColor = true }
-                        )
-                    }
+                    // A circle showing the color for the Calendar
+                    Box(
+                        Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(Color(color).toColor())
+                            .border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                            .clickable { pickColor = true }
+                    )
                     Spacer(Modifier.size(8.dp))
                     TextField(
                         value = name,
@@ -117,15 +171,17 @@ fun NewCalendarAction(modifier: Modifier = Modifier, close: () -> Unit, submit: 
 
 /** The dialog for when the user wants to import an existing Calendar from the device to be synced.
  * @param submit Function that runs when the "Select" button is clicked.
- *               Argument is a list of Calendar IDs.
- *               User can select multiple calendars, aka a `List<Long>` */
+ * Argument is a list of Calendar IDs.
+ * User can select multiple calendars, aka a `List<Long>`
+ * [close] is always called before *submitting*. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<String, ExternalUserCalendar>, close: () -> Unit, submit: (List<Long>) -> Unit) {
+    // The IDs of the Calendars selected to be copied
     val selectedIds = remember { mutableStateMapOf<Long, Unit>() }
 
     AlertDialog(
-        modifier = modifier,
+        modifier = modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.75).dp),
         title = { Text("Select Calendars to copy") },
         onDismissRequest = close,
         dismissButton = {
@@ -185,28 +241,29 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
     )
 }
 
-// TODO: doc
 @Composable
 private fun Calendar(modifier: Modifier = Modifier, color: Color, name: String, selected: Boolean, importedTo: String? = null, onClick: () -> Unit) {
-    // Color of the ListItem container when it is selected
     val enabled = importedTo == null
     val content = @Composable {
-        Row(modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .let {
-                if (enabled) {
-                    val selectedColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
-                    it.background(if (selected) selectedColor else androidx.compose.ui.graphics.Color.Transparent)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = rememberRipple(
-                                color = if (selected) MaterialTheme.colorScheme.surface else selectedColor
-                            ),
-                            onClick = onClick
-                        )
-                } else it
-            },
+        Row(
+            modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .let {
+                    if (enabled) {
+                        val selectedColor =
+                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
+                        it
+                            .background(if (selected) selectedColor else androidx.compose.ui.graphics.Color.Transparent)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = rememberRipple(
+                                    color = if (selected) MaterialTheme.colorScheme.surface else selectedColor
+                                ),
+                                onClick = onClick
+                            )
+                    } else it
+                },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -225,7 +282,6 @@ private fun Calendar(modifier: Modifier = Modifier, color: Color, name: String, 
                 else
                     Text(name,
                         style = MaterialTheme.typography.bodyMedium,
-                        // fontWeight = FontWeight.Light,
                         color = MaterialTheme.colorScheme.outline
                     )
             }
