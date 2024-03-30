@@ -34,7 +34,6 @@ import me.marti.calprovexample.GroupedList
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.PreferenceKey
 import me.marti.calprovexample.R
-import me.marti.calprovexample.SetUserPreference
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.calendar.AllData
 import me.marti.calprovexample.calendar.ExternalUserCalendar
@@ -42,9 +41,10 @@ import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.calendar.copyFromDevice
 import me.marti.calprovexample.calendar.deleteCalendar
 import me.marti.calprovexample.calendar.editCalendar
+import me.marti.calprovexample.calendar.externalUserCalendars
 import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
-import me.marti.calprovexample.calendar.externalUserCalendars
+import me.marti.calprovexample.calendar.toggleSync
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
@@ -59,6 +59,12 @@ class MainActivity : ComponentActivity() {
       * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
     @SuppressLint("MutableCollectionMutableState")
     private var userCalendars: MutableState<SnapshotStateList<InternalUserCalendar>?> = mutableStateOf(null)
+    private fun withUserCalendars(f: (SnapshotStateList<InternalUserCalendar>) -> Unit) {
+        this.userCalendars.value?.let(f) ?: run {
+            // Initialize the list if it hasn't been initialized already
+            this@MainActivity.setUserCalendars()
+        }
+    }
 
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -91,10 +97,6 @@ class MainActivity : ComponentActivity() {
 
         val preferences = this.baseContext.getAppPreferences()
         this.syncDir.initStore(preferences)
-
-        // TODO: store whether a calendar is synced in the ContentProvider's IS_SYNCED field.
-        val syncedCals = SetUserPreference(PreferenceKey.SYNCED_CALS) { id -> id.toLong() }
-        syncedCals.initStore(preferences)
         val fragmentCals = BooleanUserPreference(PreferenceKey.FRAGMENT_CALS)
         fragmentCals.initStore(preferences)
 
@@ -135,14 +137,11 @@ class MainActivity : ComponentActivity() {
                                     hasSelectedDir = syncDir.value != null,
                                     selectDirClick = { this@MainActivity.selectSyncDir() },
                                     calPermsClick =  { this@MainActivity.setUserCalendars() },
-                                    calIsSynced = { id -> syncedCals.contains(id) },
-                                    onCalSwitchClick = { id, checked -> if (checked) syncedCals.add(id) else syncedCals.remove(id) },
+                                    syncCalendarSwitch = { id, sync -> this@MainActivity.toggleSyncCalendar(id, sync) },
                                     editCalendar = { id, name, color ->
                                         openAction = Actions.EditCalendar(id, name, color)
                                     },
-                                    deleteCalendar = { id ->
-                                        this@MainActivity.deleteCalendar(id)
-                                    }
+                                    deleteCalendar = { id -> this@MainActivity.deleteCalendar(id) }
                                 )
                             }
 
@@ -246,10 +245,7 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             this.newCalendar(name, color)?.let { newCal ->
                 // Add the Calendar to the list
-                userCalendars.value?.add(newCal) ?: run {
-                    // Initialize the list if it hasn't been initialized already
-                    this@MainActivity.setUserCalendars()
-                }
+                this@MainActivity.withUserCalendars { it.add(newCal) }
             }
         }
     }
@@ -257,18 +253,24 @@ class MainActivity : ComponentActivity() {
     private fun editCalendar(id: Long, newName: String, newColor: Color) {
         this.calendarPermission.run {
             if (this.editCalendar(id, newName, newColor)) {
-                userCalendars.value?.let { calendars ->
-                    val old = calendars.find { cal -> cal.id == id }
-                        ?: throw Exception("Could not find Calendar with ID=$id in `userCalendars`")
-                    val new = old.copy(
+                withUserCalendars { calendars ->
+                    // ?: throw Exception("Could not find Calendar with ID=$id in `userCalendars`")
+                    val i = calendars.indexOfFirst { cal -> cal.id == id }
+                    calendars[i] = calendars[i].copy(
                         name = newName,
                         color = newColor
                     )
-                    calendars.remove(old)
-                    calendars.add(new)
-                } ?: run {
-                    // Initialize the list if it hasn't been initialized already
-                    this@MainActivity.setUserCalendars()
+                }
+            }
+        }
+    }
+
+    private fun toggleSyncCalendar(id: Long, sync: Boolean) {
+        this.calendarPermission.run {
+            if (this.toggleSync(id, sync)) {
+                withUserCalendars { calendars ->
+                    val i = calendars.indexOfFirst { cal -> cal.id == id }
+                    calendars[i] = calendars[i].copy(sync = sync)
                 }
             }
         }
@@ -278,10 +280,7 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             if (this.deleteCalendar(id)) {
                 // Remove the deleted Calendar from the list
-                userCalendars.value?.removeIf { cal -> cal.id == id } ?: run {
-                    // Initialize the list if it hasn't been initialized already
-                    this@MainActivity.setUserCalendars()
-                }
+                withUserCalendars { it.removeIf { cal -> cal.id == id } }
             }
         }
     }
@@ -290,10 +289,7 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             this.copyFromDevice(ids)?.let { newCals ->
                 // Add the Calendars to the list
-                userCalendars.value?.addAll(newCals) ?: run {
-                    // Initialize the list if it hasn't been initialized already
-                    this@MainActivity.setUserCalendars()
-                }
+                withUserCalendars { it.addAll(newCals) }
             }
         }
     }

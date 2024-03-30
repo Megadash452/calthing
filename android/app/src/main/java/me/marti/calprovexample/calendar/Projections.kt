@@ -31,6 +31,7 @@ enum class DisplayCalendarProjection(val s: String) {
     DISPLAY_NAME(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME),
     ACCOUNT_NAME(CalendarContract.Calendars.ACCOUNT_NAME),
     COLOR(CalendarContract.Calendars.CALENDAR_COLOR),
+    SYNC(CalendarContract.Calendars.SYNC_EVENTS),
     /** Used only with Calendars owned by this app (internal). See [IMPORTED_FROM_COLUMN]. */
     IMPORTED_FROM(IMPORTED_FROM_COLUMN);
 

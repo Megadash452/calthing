@@ -92,6 +92,7 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import androidx.compose.ui.graphics.Color
+import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.tryMap
 import me.marti.calprovexample.Color as InternalColor
 
@@ -530,11 +531,7 @@ private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded
  * @param calPermsClick
  *   When the app doesn't have Calendar Permissions, [groupedCalendars] will be **`NULL`**
  *   and this will show a Button that will call *this function* when clicked to *request the permission*.
- * @param calIsSynced
- *   Tell whether a Calendar is being synced and its **switch** should be checked.
- *   #### Arguments:
- *   1. (*`Long`*): The **ID** of the Calendar.
- * @param onCalSwitchClick
+ * @param syncCalendarSwitch
  *   Runs when the user toggles the **Sync** switch for a Calendar.
  *   #### Arguments
  *   1. (*`Long`*): The **ID** of the Calendar.
@@ -555,10 +552,9 @@ fun Calendars(
     modifier: Modifier = Modifier,
     hasSelectedDir: Boolean = false,
     selectDirClick: () -> Unit = {},
-    groupedCalendars: GroupedList<String, UserCalendarListItem>?,
+    groupedCalendars: GroupedList<String, InternalUserCalendar>?,
     calPermsClick: () -> Unit = {},
-    calIsSynced: (Long) -> Boolean = { false },
-    onCalSwitchClick: (Long, Boolean) -> Unit = { _, _ -> },
+    syncCalendarSwitch: (Long, Boolean) -> Unit = { _, _ -> },
     editCalendar: (Long, String, InternalColor) -> Unit = { _, _, _ -> },
     deleteCalendar: (Long) -> Unit = {}
 ) {
@@ -612,13 +608,13 @@ fun Calendars(
                     this.items(calGroup, key = { cal -> cal.id }) { cal ->
                         CalendarListItem(
                             cal = cal,
-                            isSynced = calIsSynced(cal.id),
+                            isSynced = cal.sync,
                             expanded = expandedItem == cal.id,
                             expandedToggle = {
                                 // if user clicks on the expandedItem, it will be collapsed
                                 expandedItem = if (expandedItem == cal.id) null else cal.id
                             },
-                            onSwitchClick = { checked -> onCalSwitchClick(cal.id, checked) },
+                            onSwitchClick = { checked -> syncCalendarSwitch(cal.id, checked) },
                             editClick = { editCalendar(cal.id, cal.name, cal.color) },
                             deleteClick = { deleteCalendar(cal.id) }
                         )
@@ -793,7 +789,8 @@ fun CalendarsPreview() {
                     accountName = acc,
                     color = me.marti.calprovexample.Color("5080c8")
                 )
-            ).groupBy { cal -> cal.accountName }
+            ).map { cal -> InternalUserCalendar(cal, false, null) }
+                .groupBy { cal -> cal.accountName }
         )
     }
 }

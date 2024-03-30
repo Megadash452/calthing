@@ -2,6 +2,7 @@ package me.marti.calprovexample.calendar
 
 import android.content.ContentProviderClient
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
@@ -49,6 +50,28 @@ private fun openCursor(create: () -> Cursor?): Cursor? {
         Log.e("getCursor", "Exception occurred while loading calendar query cursor:\n$e")
         null
     }
+}
+
+/** Update data of a specific Calendar.
+ *
+ * @param id The *ID* of the Calendar.
+ * @param accountName If not **`NULL`**, will update data **as sync adapter**.
+ * @param values The updated data.
+ *
+ * @return Whether the update was successful. */
+internal fun Context.updateCalendar(id: Long, accountName: String? = null, values: ContentValues): Boolean {
+    val uri = CalendarContract.Calendars.CONTENT_URI.withId(id)
+    val success = this.contentResolver.update(
+        if (accountName != null)
+            uri.asSyncAdapter(accountName)
+        else uri,
+        values, null, null
+    ) != 0
+
+    if (!success)
+        Log.e("updateCalendar", "Failed to update Calendar with ID=$id")
+
+    return success
 }
 
 /** Get a client for general operations on the Calendar *Content Provider*

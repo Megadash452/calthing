@@ -55,16 +55,22 @@ class InternalUserCalendar(
     name: String,
     accountName: String,
     color: Color,
+    /** Whether the user chose to sync this Calendar. Starts as `false` for new/imported Calendars. */
+    val sync: Boolean,
     /** The **ID** of the external Calendar that was used to create this one (if any).
      * See [IMPORTED_FROM_COLUMN]. */
     val importedFrom: Long?
 ) : UserCalendarListItem(id, name, accountName, color) {
-    fun copy(id: Long? = null, name: String? = null, accountName: String? = null, color: Color? = null, importedFrom: Long? = null): InternalUserCalendar {
+    constructor(parent: UserCalendarListItem, sync: Boolean, importedFrom: Long?)
+            : this(parent.id, parent.name, parent.accountName, parent.color, sync, importedFrom)
+
+    fun copy(id: Long? = null, name: String? = null, accountName: String? = null, color: Color? = null, sync: Boolean? = null, importedFrom: Long? = null): InternalUserCalendar {
         return InternalUserCalendar(
             id = id ?: this.id,
             name = name ?: this.name,
             accountName = accountName ?: this.accountName,
             color = color ?: this.color,
+            sync = sync ?: this.sync,
             importedFrom = importedFrom ?: this.importedFrom
         )
     }
@@ -118,8 +124,8 @@ fun CalendarPermission.Dsl.internalUserCalendars(): List<InternalUserCalendar>? 
             accountName = cur.getString(DisplayCalendarProjection.ACCOUNT_NAME.ordinal),
             // The stored color is a 32bit ARGB, but the alpha is ignored.
             color = Color(cur.getInt(DisplayCalendarProjection.COLOR.ordinal)),
-            // Internal calendars could have IMPORTED_FROM set. Ignore if field if is not internal.
-            importedFrom = cur.getLongOrNull(DisplayCalendarProjection.IMPORTED_FROM.ordinal)
+            sync = cur.getInt(DisplayCalendarProjection.SYNC.ordinal) != 0,
+            importedFrom = cur.getLongOrNull(DisplayCalendarProjection.IMPORTED_FROM.ordinal),
         )
     }
 
@@ -143,8 +149,9 @@ fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): InternalUser
         this.put(CalendarContract.Calendars.CALENDAR_COLOR, color.toColor().toArgb())
         this.put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.CAL_ACCESS_OWNER)
         // Not required, but recommended
-        this.put(CalendarContract.Calendars.SYNC_EVENTS, 1)
         this.put(CalendarContract.Calendars.CALENDAR_TIME_ZONE, "America/New_York") // TODO: get value from rust library
+        // The calendar starts as not synced, then the user can choose whether to sync it or not.
+        this.put(CalendarContract.Calendars.SYNC_EVENTS, false)
         this.put(
             CalendarContract.Calendars.ALLOWED_REMINDERS,
             "${CalendarContract.Reminders.METHOD_DEFAULT}," +
@@ -168,28 +175,29 @@ fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): InternalUser
         name = name,
         accountName = accountName,
         color = color,
+        sync = false,
         importedFrom = null
     )
 }
 
 fun CalendarPermission.Dsl.editCalendar(id: Long, newName: String, newColor: Color): Boolean {
-    val success = this.context.contentResolver.update(
-        CalendarContract.Calendars.CONTENT_URI
-            .withId(id)
-            .asSyncAdapter(this.context.getString(R.string.account_name)),
-        ContentValues().apply {
+    return this.context.updateCalendar(
+        id = id,
+        accountName = this.context.getString(R.string.account_name),
+        values = ContentValues().apply {
             this.put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, newName)
             this.put(CalendarContract.Calendars.CALENDAR_COLOR, newColor.toColor().toArgb())
-        },
-        null, null
-    ) != 0
+        }
+    )
+}
 
-    if (success)
-        Log.i("editCalendar", "Updated Calendar (ID=$id) to \"$newName\", with color $newColor")
-    else
-        Log.e("editCalendar", "Failed to update Calendar with ID=$id")
-
-    return success
+fun CalendarPermission.Dsl.toggleSync(id: Long, sync: Boolean): Boolean {
+    return this.context.updateCalendar(
+        id = id,
+        values = ContentValues().apply {
+            this.put(CalendarContract.Calendars.SYNC_EVENTS, if (sync) 1 else 0)
+        }
+    )
 }
 
 /** Delete a Calendar from the System ContentProvider.
@@ -265,6 +273,8 @@ fun CalendarPermission.Dsl.copyFromDevice(ids: List<Long>): List<InternalUserCal
             this.put(CalendarContract.Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL)
             this.put(CalendarContract.Calendars.ACCOUNT_NAME, accountName)
             this.put(CalendarContract.Calendars.OWNER_ACCOUNT, accountName)
+            // The calendar starts as not synced, then the user can choose whether to sync it or not.
+            this.put(CalendarContract.Calendars.SYNC_EVENTS, 0)
             // Store which (if any) calendar this one was created from so that calendar can't be imported again.
             this.put(IMPORTED_FROM_COLUMN, cursor.getLong(CopyCalendarsProjection.ID.ordinal))
             // this.put(CalendarContract.Calendars._SYNC_ID, ???)
@@ -277,6 +287,7 @@ fun CalendarPermission.Dsl.copyFromDevice(ids: List<Long>): List<InternalUserCal
                 accountName = accountName,
                 // color = data[CalendarContract.Calendars.CALENDAR_COLOR]
                 color = Color(data.getAsInteger(CopyCalendarsProjection.COLOR.column)),
+                sync = false,
                 importedFrom = data.getAsLong(IMPORTED_FROM_COLUMN)
             ))
         } ?: run {
