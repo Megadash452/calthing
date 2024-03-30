@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
         val preferences = this.baseContext.getAppPreferences()
         this.syncDir.initStore(preferences)
 
+        // TODO: store whether a calendar is synced in the ContentProvider's IS_SYNCED field.
         val syncedCals = SetUserPreference(PreferenceKey.SYNCED_CALS) { id -> id.toLong() }
         syncedCals.initStore(preferences)
         val fragmentCals = BooleanUserPreference(PreferenceKey.FRAGMENT_CALS)

@@ -57,6 +57,7 @@ import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 const val DEFAULT_CALENDAR_COLOR = 0x68acef
 
 // Sum-type-like enum
+@Suppress("ConvertObjectToDataObject")
 sealed class Actions private constructor() {
     object NewCalendar: Actions()
     class EditCalendar(val id: Long, val name: String, val color: Color): Actions()

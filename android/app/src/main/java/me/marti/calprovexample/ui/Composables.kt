@@ -34,6 +34,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
@@ -91,6 +92,7 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import androidx.compose.ui.graphics.Color
+import me.marti.calprovexample.tryMap
 import me.marti.calprovexample.Color as InternalColor
 
 const val OUTER_PADDING = 8
@@ -110,7 +112,7 @@ private val TOP_BAR_CONTENT_COLOR
  * Can show different **content** but this keeps it consistent.
  *
  * The different **content** are separated into *tabs*.
- * Add a **tab** for a content using the DSL **`MainContentScope`**.
+ * Add a **tab** for a content using the DSL **[MainContentScope]**.
  *
  * Example:
  * ```kt
@@ -119,8 +121,7 @@ private val TOP_BAR_CONTENT_COLOR
  * }
  * ```
  *
- * @param navigateTo The logic behind the navigation. Takes in a *destination* to navigate to.
- * @see MainContentScope*/
+ * @param navigateTo The logic behind the navigation. Takes in a *destination* to navigate to. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainContent(
@@ -188,12 +189,13 @@ fun MainContent(
  *                 Must call **`this.tabWithFab()`** for this parameter.
  *
  * @see MainContent */
+@Suppress("unused", "MemberVisibilityCanBePrivate")
 class MainContentScope {
     internal var tabs: MutableList<TabNavDestination> = mutableListOf()
 
     // Add tab without an icon
     fun tab(title: String, content: @Composable (Modifier) -> Unit) {
-        this.tabs.add(TabNavDestination(title, content))
+        this.tabs.add(SimpleTabNavDestination(title, content))
     }
 
     // Add tabs with icons
@@ -325,49 +327,45 @@ private fun <T: TabNavDestination> TabBar(
     controller: TabNavController<T>
 ) {
     @Composable
-    fun TabTitle(title: String) {
-        Text(
-            title,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.5.sp
-        )
-    }
+    fun TabTitle(title: String)
+        = Text(title, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
 
     PrimaryTabRow(
         modifier = modifier,
         selectedTabIndex = controller.selectedIdx.intValue,
         containerColor = containerColor,
         divider = { HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.surfaceVariant) },
-        // indicator = { TabRowDefaults.PrimaryIndicator() }
     ) {
-        // Is not NULL only when tabs are PrimaryTabNavDestination
-        val getIcon: (@Composable (T) -> Unit)? =
-            if (controller.tabs.all { it is PrimaryTabNavDestination }) { tab: T ->
-                (tab as PrimaryTabNavDestination).icon
-            } else {
+        // Show Icon only if ALL Tabs have icons, or if there are no more than 2 tabs.
+        controller.tabs.tryMap {
+            if (controller.tabs.size <= 2)
+                it as? PrimaryTabNavDestination
+            else
                 null
+        }?.let { tabs ->
+            // T has icons
+            tabs.forEachIndexed { i, tab ->
+                LeadingIconTab(
+                    icon = tab.icon,
+                    text = { TabTitle(tab.title) },
+                    selectedContentColor = TOP_BAR_CONTENT_COLOR,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    selected = controller.selectedIdx.intValue == i,
+                    onClick = { controller.selectedIdx.intValue = i }
+                )
             }
-        // When there are more than 2 Tabs, or the caller decides to use SimpleTabs (no icon), use regular Tab Composable.
-        val composeTab: @Composable (Int, T) -> Unit = if (controller.tabs.size <= 2 && getIcon != null) { i, tab ->
-            LeadingIconTab(
-                icon = { getIcon(tab) },
-                text = { TabTitle(tab.title) },
-                selectedContentColor = TOP_BAR_CONTENT_COLOR,
-                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                selected = controller.selectedIdx.intValue == i,
-                onClick = { controller.selectedIdx.intValue = i }
-            )
-        } else { i, tab ->
-            androidx.compose.material3.Tab(
-                icon = if (getIcon == null) null else { { getIcon(tab) } },
-                text = { TabTitle(tab.title) },
-                selectedContentColor = TOP_BAR_CONTENT_COLOR,
-                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                selected = controller.selectedIdx.intValue == i,
-                onClick = { controller.selectedIdx.intValue = i }
-            )
+        } ?: run {
+            // T doesn't have icons
+            controller.tabs.forEachIndexed { i, tab ->
+                androidx.compose.material3.Tab(
+                    text = { TabTitle(tab.title) },
+                    selectedContentColor = TOP_BAR_CONTENT_COLOR,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    selected = controller.selectedIdx.intValue == i,
+                    onClick = { controller.selectedIdx.intValue = i }
+                )
+            }
         }
-        controller.tabs.forEachIndexed{ i, tab -> composeTab(i, tab) }
     }
 }
 
@@ -379,6 +377,7 @@ private fun <T: TabNavDestination> TabBar(
  *                The first **action** in the list will replace the main `FAB` in *expanded mode*.
  *                The rest of the actions will compose `Small FAB`s above the first `FAB`. */
 // Primary constructor is private to overload constructors with different icon variants.
+@Suppress("unused")
 class ExpandableFab private constructor(
     val icon: @Composable () -> Unit,
     val description: String?,
@@ -431,10 +430,6 @@ private fun ExpandableFloatingActionButtons(
     data: ExpandableFab
 ) {
     var fabWidth by remember { mutableStateOf(0.dp) }
-    val mainFabColor by animateColorAsState(
-        if (expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
-        label = "Main FAB Container Color Animation"
-    )
     val spacing = 12.dp
     @Composable
     fun ActionLabel(text: String) {
@@ -448,10 +443,12 @@ private fun ExpandableFloatingActionButtons(
         remember { data.actions.rest.reversed() }.forEach { action ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
                 ActionLabel(action.label)
-                AnimatedVisibility(visible = expanded, enter = expandIn(), exit = shrinkOut()) {
+                // FIXME: shadows are very glitchy when animating (for both the big and small fabs) (probably has to do with AnimatedVisibility clipping its content during animation)
+                // RowScope (this) has its own AnimatedVisibility which has slightly different animations.
+                this.AnimatedVisibility(visible = expanded, enter = expandIn(), exit = shrinkOut()) {
                     Box(Modifier.width(fabWidth), contentAlignment = Alignment.Center) {
                         SmallFloatingActionButton(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            containerColor = MaterialTheme.colorScheme.surface,
                             contentColor = MaterialTheme.colorScheme.primary,
                             onClick = {
                                 collapse()
@@ -466,8 +463,15 @@ private fun ExpandableFloatingActionButtons(
         Row(modifier = Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
             ActionLabel(data.actions.first.label)
             val mainFab = @Composable {
+                val density = LocalDensity.current
                 FloatingActionButton(
-                    containerColor = mainFabColor,
+                    modifier = Modifier.onGloballyPositioned {
+                        fabWidth = with(density) { it.size.width.toDp() }
+                    },
+                    containerColor = animateColorAsState(
+                        if (expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
+                        label = "Main FAB Container Color Animation"
+                    ).value,
                     // When actions are expanded, the FAB will change to one of the actions
                     onClick = if (expanded) { {
                         collapse()
@@ -483,18 +487,14 @@ private fun ExpandableFloatingActionButtons(
                     }
                 }
             }
-            val density = LocalDensity.current
-            Box(modifier = Modifier.onGloballyPositioned {
-                fabWidth = with(density) { it.size.width.toDp() }
-            }) {
-                if (data.description != null)
-                    PlainTooltipBox(
-                        tooltipContent = { Text(data.description) },
-                        content = mainFab
-                    )
-                else
-                    mainFab()
-            }
+
+            if (data.description != null && !expanded)
+                PlainTooltipBox(
+                    tooltipContent = { Text(data.description) },
+                    content = mainFab
+                )
+            else
+                mainFab()
         }
     }
 }
@@ -513,7 +513,7 @@ private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color(0xc3000000))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)) // 0xe1000000
                 .clickable(onClick = collapse)
         )
     }
@@ -522,10 +522,33 @@ private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded
 /**
  * The starting screen for the Main Activity.
  *
- * @param hasSelectedDir Shows the user a button to select a sync dir if false.
- * @param groupedCalendars All the calendars the user has on their device. The calendars are grouped by Account Name.
- *                         Pass in **null** if the app doesn't have permission to read device calendars
- */
+ * @param hasSelectedDir Shows the user a button to select a sync dir if `false`.
+ * @param groupedCalendars
+ *   A list of Calendars that the user has created/imported to sync with this App.
+ *   The list is grouped by *`accountName`* // TODO: will ungroup this in the future since all calendars passed in will have the same accountName.
+ *   If **`NULL`** is passed in, a Button to request Calendar Permissions will be shown.
+ * @param calPermsClick
+ *   When the app doesn't have Calendar Permissions, [groupedCalendars] will be **`NULL`**
+ *   and this will show a Button that will call *this function* when clicked to *request the permission*.
+ * @param calIsSynced
+ *   Tell whether a Calendar is being synced and its **switch** should be checked.
+ *   #### Arguments:
+ *   1. (*`Long`*): The **ID** of the Calendar.
+ * @param onCalSwitchClick
+ *   Runs when the user toggles the **Sync** switch for a Calendar.
+ *   #### Arguments
+ *   1. (*`Long`*): The **ID** of the Calendar.
+ *   2. (*`Boolean`*): Whether the switch is *checked* (should enable *syncing* for this Calendar).
+ * @param editCalendar
+ *   Runs when the user clicks the **Edit** Button for a Calendar.
+ *   #### Arguments
+ *   1. (*`Long`*): The **ID** of the Calendar.
+ *   2. (*`String`*): The current **name** of the Calendar.
+ *   3. (*`Color`*): The current **color** of the Calendar.
+ * @param deleteCalendar
+ *   Runs when the user clicks the **Delete** Button for a Calendar.
+ *   #### Arguments
+ *   1. (*`Long`*): The **ID** of the Calendar. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Calendars(
@@ -786,6 +809,28 @@ fun TopBarPreview() {
                     PrimaryTabNavDestination({ Icon(Icons.Default.DateRange, null) }, "Calendars") {},
                     PrimaryTabNavDestination({ Icon(Icons.Default.AccountCircle, null) }, "Contacts") {}
                 ))
+            )
+        }
+    }
+}
+@Preview(showBackground = true, widthDp = 250, heightDp = 200)
+@Composable
+fun ExpandedFabPreview() {
+    CalProvExampleTheme {
+        Box(contentAlignment = Alignment.BottomEnd) {
+            ExpandedFabBackgroundOverlay(expanded = true) { }
+            ExpandableFloatingActionButtons(
+                modifier = Modifier.padding(end = 10.dp, bottom = 10.dp),
+                expanded = true,
+                data = ExpandableFab(
+                    icon = Icons.Default.Add,
+                    description = "Action Buttons",
+                    actions = NonEmptyList(
+                        ExpandableFab.Action(Icons.Default.Create, "Bottom action") { },
+                        ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Middle action") { },
+                        ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Top action") { },
+                    )
+                )
             )
         }
     }

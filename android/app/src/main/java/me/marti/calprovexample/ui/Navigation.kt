@@ -4,13 +4,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 
 /** Information about a tab in a TabBar or NavBar and the content it is tied to.
- * @param content The content composable is passed a modifier.
+ * @param title The text shown for this Tab in the [TabBar].
+ * @param content The Composables to show on the rest of the screen. The content is given a [Modifier].
  * @see PrimaryTabNavDestination
  * @see SimpleTabNavDestination */
-open class TabNavDestination(
+abstract class TabNavDestination(
     val title: String,
     val content: @Composable (Modifier) -> Unit
 )

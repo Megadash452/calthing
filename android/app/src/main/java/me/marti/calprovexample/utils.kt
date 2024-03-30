@@ -5,7 +5,8 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 /** A **`List<T>`** grouped by values **`G`**, which are members of **`T`**. */
 typealias GroupedList<G, T> = Map<G, List<T>>
 
-/** */
+/** A list that will always have *at least* 1 item. */
+@Suppress("unused")
 class NonEmptyList<T>(
     val first: T,
     val rest: List<T>
@@ -21,6 +22,13 @@ class NonEmptyList<T>(
             first
         else
             rest[index]
+    }
+}
+
+/** Similar to [List.map] but will fail and return **`NULL`** if `transform` returns **`NULL`** for any item in the list. */
+fun <T, R> List<T>.tryMap(transform: (T) -> R?): List<R>? {
+    return this.map {
+        transform(it) ?: return null
     }
 }
 
