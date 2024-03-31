@@ -511,11 +511,13 @@ private fun ExpandableFloatingActionButtons(
 @Composable
 private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded: Boolean, collapse: () -> Unit) {
     AnimatedVisibility(modifier = modifier, visible = expanded, enter = fadeIn(), exit = fadeOut()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)) // 0xe1000000
-                .clickable(onClick = collapse)
+        Box(Modifier
+            .fillMaxSize()
+            // .background(Color(0xc3000000))
+            // Weird flash glitch during expanding fade animation (only noticeable in dark mode)
+            // Seems to only be caused by MaterialTheme.colorScheme.background and surface
+            .background(MaterialTheme.colorScheme.surfaceDim.copy(alpha = 0.88f)) // 0xe1000000
+            .clickable(onClick = collapse)
         )
     }
 }
