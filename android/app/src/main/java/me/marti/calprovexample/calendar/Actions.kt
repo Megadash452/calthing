@@ -64,6 +64,7 @@ class InternalUserCalendar(
     constructor(parent: UserCalendarListItem, sync: Boolean, importedFrom: Long?)
             : this(parent.id, parent.name, parent.accountName, parent.color, sync, importedFrom)
 
+    /** Create a copy of a Calendar object to edit some of its fields. */
     fun copy(id: Long? = null, name: String? = null, accountName: String? = null, color: Color? = null, sync: Boolean? = null, importedFrom: Long? = null): InternalUserCalendar {
         return InternalUserCalendar(
             id = id ?: this.id,
@@ -204,8 +205,6 @@ fun CalendarPermission.Dsl.toggleSync(id: Long, sync: Boolean): Boolean {
  * @return **`true`** if the Calendar was successfully deleted, **`false`** if it wasn't. */
 fun CalendarPermission.Dsl.deleteCalendar(id: Long): Boolean {
     // Events are automatically deleted with the calendar
-    // TODO: show confirmation to delete
-    // TODO: show snack-bar with undo button
     val client = this.context.getClient()
     val calName = client.getCursor(
         CalendarContract.Calendars.CONTENT_URI.withId(id),

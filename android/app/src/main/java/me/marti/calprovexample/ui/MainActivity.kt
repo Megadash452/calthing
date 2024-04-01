@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -14,11 +15,16 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -28,6 +34,8 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.GroupedList
@@ -56,15 +64,11 @@ class MainActivity : ComponentActivity() {
       * Null if the user hasn't selected a directory. */
     private val syncDir = StringLikeUserPreference(PreferenceKey.SYNC_DIR_URI) { uri -> uri.toUri() }
     /** Calendars are grouped by Account Name.
-      * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device). */
+     * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device).
+     *
+     * Since the list is *`MutableState`*, to edit data of an element it must be **replaced** with another (use [InternalUserCalendar.copy]). */
     @SuppressLint("MutableCollectionMutableState")
     private var userCalendars: MutableState<SnapshotStateList<InternalUserCalendar>?> = mutableStateOf(null)
-    private fun withUserCalendars(f: (SnapshotStateList<InternalUserCalendar>) -> Unit) {
-        this.userCalendars.value?.let(f) ?: run {
-            // Initialize the list if it hasn't been initialized already
-            this@MainActivity.setUserCalendars()
-        }
-    }
 
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -114,7 +118,11 @@ class MainActivity : ComponentActivity() {
                     this.composable(NavDestination.Main.route) {
                         // Open a secondary item in this screen, such as the FAB or a dialog
                         var openAction: Actions? by rememberSaveable { mutableStateOf(null) }
-                        MainContent(navigateTo = { dest -> navController.navigate(dest.route) }) {
+                        val snackBarHost = SnackBarHost.create()
+                        MainContent(
+                            navigateTo = { dest -> navController.navigate(dest.route) },
+                            snackBarState = snackBarHost.state
+                        ) {
                             this.tabWithFab(
                                 icon = Icons.Default.DateRange,
                                 title = "Calendars",
@@ -133,7 +141,7 @@ class MainActivity : ComponentActivity() {
                             ) { modifier ->
                                 Calendars(
                                     modifier = modifier,
-                                    groupedCalendars = userCalendars.value?.groupBy { cal -> cal.accountName },
+                                    calendars = userCalendars.value,
                                     hasSelectedDir = syncDir.value != null,
                                     selectDirClick = { this@MainActivity.selectSyncDir() },
                                     calPermsClick =  { this@MainActivity.setUserCalendars() },
@@ -141,7 +149,7 @@ class MainActivity : ComponentActivity() {
                                     editCalendar = { id, name, color ->
                                         openAction = Actions.EditCalendar(id, name, color)
                                     },
-                                    deleteCalendar = { id -> this@MainActivity.deleteCalendar(id) }
+                                    deleteCalendar = { id -> this@MainActivity.deleteCalendar(id, snackBarHost) }
                                 )
                             }
 
@@ -171,12 +179,10 @@ class MainActivity : ComponentActivity() {
                                 var error by remember { mutableStateOf(false) }
                                 this@MainActivity.calendarPermission.run {
                                     this.externalUserCalendars()?.let { cals ->
-                                        calendars = cals
+                                        calendars = cals.map { cal -> ExternalUserCalendar(cal,
                                             // Find the calendar owned by this app (internal) that copied this calendar's data (if any).
-                                            .map { cal -> ExternalUserCalendar(
-                                                cal,
-                                                userCalendars.value?.find { iCal -> cal.id == iCal.importedFrom }?.name
-                                            ) }
+                                            userCalendars.value?.find { iCal -> cal.id == iCal.importedFrom }?.name
+                                        ) }
                                             .groupBy { cal -> cal.accountName }
                                     } ?: run {
                                         error = true
@@ -190,9 +196,8 @@ class MainActivity : ComponentActivity() {
                                         submit = { id -> this@MainActivity.copyCalendars(id) }
                                     )
                                 } else if (error) {
-                                    Text("Could not query user calendars")
-                                } else {
-                                    Text("Waiting for Calendar Permission...")
+                                    Toast.makeText(this@MainActivity.baseContext, "Could not query user calendars", Toast.LENGTH_SHORT).show()
+                                    openAction = null
                                 }
                             }
                             Actions.ImportFile -> { /* TODO */ }
@@ -245,7 +250,7 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             this.newCalendar(name, color)?.let { newCal ->
                 // Add the Calendar to the list
-                this@MainActivity.withUserCalendars { it.add(newCal) }
+                userCalendars.value?.add(newCal)
             }
         }
     }
@@ -253,7 +258,7 @@ class MainActivity : ComponentActivity() {
     private fun editCalendar(id: Long, newName: String, newColor: Color) {
         this.calendarPermission.run {
             if (this.editCalendar(id, newName, newColor)) {
-                withUserCalendars { calendars ->
+                userCalendars.value?.let { calendars ->
                     // ?: throw Exception("Could not find Calendar with ID=$id in `userCalendars`")
                     val i = calendars.indexOfFirst { cal -> cal.id == id }
                     calendars[i] = calendars[i].copy(
@@ -268,7 +273,7 @@ class MainActivity : ComponentActivity() {
     private fun toggleSyncCalendar(id: Long, sync: Boolean) {
         this.calendarPermission.run {
             if (this.toggleSync(id, sync)) {
-                withUserCalendars { calendars ->
+                userCalendars.value?.let { calendars ->
                     val i = calendars.indexOfFirst { cal -> cal.id == id }
                     calendars[i] = calendars[i].copy(sync = sync)
                 }
@@ -276,11 +281,47 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun deleteCalendar(id: Long) {
-        this.calendarPermission.run {
-            if (this.deleteCalendar(id)) {
-                // Remove the deleted Calendar from the list
-                withUserCalendars { it.removeIf { cal -> cal.id == id } }
+    private fun deleteCalendar(id: Long, snackBarHost: SnackBarHost) {
+        val calendars = userCalendars.value ?: run {
+            Log.e("UI deleteCalendar", "Trying to delete Calendar when 'userCalendars' is NULL")
+            return
+        }
+        // Keep "deleted" Calendar so that it can be restored later
+        val deleted = calendars.let { cals ->
+            // Remove the deleted Calendar from the list
+            val i = cals.indexOfFirst { cal -> cal.id == id }
+            if (i == -1) {
+                Log.e("UI deleteCalendar", "Trying to delete Calendar that doesn't exist")
+                return
+            }
+            Pair(i, cals.removeAt(i))
+        }
+        val msg = "Calendar deleted"
+
+        snackBarHost.scope.launch {
+            // If there is already a snack-bar with similar msg, dismiss it to show this one.
+            snackBarHost.state.currentSnackbarData?.let { current ->
+                if (current.visuals.message == msg)
+                    current.dismiss()
+            }
+            val result = snackBarHost.state.showSnackbar(
+                message = msg,
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Short
+            )
+            when (result) {
+                // Restore Calendar when user presses "Undo"
+                SnackbarResult.ActionPerformed -> {
+                    val (idx, calendar) = deleted
+                    if (idx < calendars.size)
+                        calendars.add(idx, calendar)
+                    else
+                        calendars.add(calendar)
+                }
+                // Only really delete calendar after notif is dismissed.
+                SnackbarResult.Dismissed -> this@MainActivity.calendarPermission.run {
+                    this.deleteCalendar(id)
+                }
             }
         }
     }
@@ -289,7 +330,7 @@ class MainActivity : ComponentActivity() {
         this.calendarPermission.run {
             this.copyFromDevice(ids)?.let { newCals ->
                 // Add the Calendars to the list
-                withUserCalendars { it.addAll(newCals) }
+                userCalendars.value?.addAll(newCals)
             }
         }
     }
@@ -297,5 +338,18 @@ class MainActivity : ComponentActivity() {
     private fun selectSyncDir() {
         // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
         dirSelectIntent.launch(null)
+    }
+}
+
+private class SnackBarHost(
+    val scope: CoroutineScope,
+    val state: SnackbarHostState
+) {
+    companion object {
+        @Composable
+        fun create(
+            scope: CoroutineScope = rememberCoroutineScope(),
+            state: SnackbarHostState = remember { SnackbarHostState() }
+        ) = SnackBarHost(scope, state)
     }
 }

@@ -11,7 +11,6 @@ import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkOut
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -54,6 +53,8 @@ import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -86,7 +87,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
-import me.marti.calprovexample.GroupedList
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.R
 import me.marti.calprovexample.calendar.UserCalendarListItem
@@ -103,7 +103,7 @@ private const val LIST_ITEM_SPACING = 4
 private const val PREVIEW_WIDTH = 300
 
 private val TOP_BAR_COLOR = Color(0)
-private val TOP_BAR_SCROLLER_COLOR
+private val TOP_BAR_SCROLLED_COLOR
     @Composable get() = MaterialTheme.colorScheme.primaryContainer
 private val TOP_BAR_CONTENT_COLOR
     @Composable get() = MaterialTheme.colorScheme.primary
@@ -122,12 +122,15 @@ private val TOP_BAR_CONTENT_COLOR
  * }
  * ```
  *
- * @param navigateTo The logic behind the navigation. Takes in a *destination* to navigate to. */
+ * @param navigateTo The logic behind the navigation. Takes in a *destination* to navigate to.
+ * @param snackBarState Adds an optional snackBar that can be controlled with this state.
+ * @param content A builder function that adds Tabs with content. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainContent(
     modifier: Modifier = Modifier,
     navigateTo: (NavDestination) -> Unit = {},
+    snackBarState: SnackbarHostState? = null,
     content: MainContentScope.() -> Unit
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -158,6 +161,7 @@ fun MainContent(
                 }
             }
         },
+        snackbarHost = if (snackBarState != null) {{ SnackbarHost(hostState = snackBarState) }} else {{ }},
     ) { paddingValues ->
         Column(Modifier.padding(bottom = paddingValues.calculateBottomPadding())) {
             TopBar(
@@ -288,7 +292,7 @@ fun <T: TabNavDestination> TopBar(
         scrollBehavior.state.overlappedFraction <= 0.01f
     }
     val containerColor by animateColorAsState(
-        targetValue = if (isScrolled) TOP_BAR_COLOR else TOP_BAR_SCROLLER_COLOR,
+        targetValue = if (isScrolled) TOP_BAR_COLOR else TOP_BAR_SCROLLED_COLOR,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "topAppBarContainerColorAnimation"
     )
@@ -526,12 +530,11 @@ private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded
  * The starting screen for the Main Activity.
  *
  * @param hasSelectedDir Shows the user a button to select a sync dir if `false`.
- * @param groupedCalendars
+ * @param calendars
  *   A list of Calendars that the user has created/imported to sync with this App.
- *   The list is grouped by *`accountName`* // TODO: will ungroup this in the future since all calendars passed in will have the same accountName.
  *   If **`NULL`** is passed in, a Button to request Calendar Permissions will be shown.
  * @param calPermsClick
- *   When the app doesn't have Calendar Permissions, [groupedCalendars] will be **`NULL`**
+ *   When the app doesn't have Calendar Permissions, [calendars] will be **`NULL`**
  *   and this will show a Button that will call *this function* when clicked to *request the permission*.
  * @param syncCalendarSwitch
  *   Runs when the user toggles the **Sync** switch for a Calendar.
@@ -548,13 +551,12 @@ private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded
  *   Runs when the user clicks the **Delete** Button for a Calendar.
  *   #### Arguments
  *   1. (*`Long`*): The **ID** of the Calendar. */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Calendars(
     modifier: Modifier = Modifier,
     hasSelectedDir: Boolean = false,
     selectDirClick: () -> Unit = {},
-    groupedCalendars: GroupedList<String, InternalUserCalendar>?,
+    calendars: List<InternalUserCalendar>?,
     calPermsClick: () -> Unit = {},
     syncCalendarSwitch: (Long, Boolean) -> Unit = { _, _ -> },
     editCalendar: (Long, String, InternalColor) -> Unit = { _, _, _ -> },
@@ -582,7 +584,7 @@ fun Calendars(
             HorizontalDivider(Modifier.padding(vertical = (LIST_ITEM_SPACING * 2).dp))
         }
 
-        if (groupedCalendars == null) {
+        if (calendars == null) {
             InfoColumn {
                 Text("Please allow ${stringResource(R.string.app_name)} to read and write yo your device's calendar")
                 IconTextButton(
@@ -591,7 +593,7 @@ fun Calendars(
                     onclick = calPermsClick
                 )
             }
-        } else if (groupedCalendars.isEmpty()) {
+        } else if (calendars.isEmpty()) {
             InfoColumn {
                 Text("There are currently no calendars.")
                 Text("Try importing one by clicking the \"Add\" Button.")
@@ -600,27 +602,26 @@ fun Calendars(
             // Items in this list can be expanded to show more actions. Value is the id of the expanded item.
             var expandedItem: Long? by rememberSaveable { mutableStateOf(null) }
             LazyColumn(
-                Modifier.padding(top = LIST_PADDING.dp),
                 verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp),
-                contentPadding = PaddingValues(bottom = 80.dp, start = LIST_PADDING.dp, end = LIST_PADDING.dp)
+                contentPadding = PaddingValues(bottom = 80.dp, start = LIST_PADDING.dp, end = LIST_PADDING.dp, top = LIST_PADDING.dp)
             ) {
-                groupedCalendars.forEach { (accountName, calGroup) ->
-                    this.stickyHeader { StickyHeader(text = accountName) }
-
-                    this.items(calGroup, key = { cal -> cal.id }) { cal ->
-                        CalendarListItem(
-                            cal = cal,
-                            isSynced = cal.sync,
-                            expanded = expandedItem == cal.id,
-                            expandedToggle = {
-                                // if user clicks on the expandedItem, it will be collapsed
-                                expandedItem = if (expandedItem == cal.id) null else cal.id
-                            },
-                            onSwitchClick = { checked -> syncCalendarSwitch(cal.id, checked) },
-                            editClick = { editCalendar(cal.id, cal.name, cal.color) },
-                            deleteClick = { deleteCalendar(cal.id) }
-                        )
-                    }
+                this.items(calendars, key = { cal -> cal.id }) { cal ->
+                    CalendarListItem(
+                        cal = cal,
+                        isSynced = cal.sync,
+                        expanded = expandedItem == cal.id,
+                        expandedToggle = {
+                            // if user clicks on the expandedItem, it will be collapsed
+                            expandedItem = if (expandedItem == cal.id) null else cal.id
+                        },
+                        onSwitchClick = { checked -> syncCalendarSwitch(cal.id, checked) },
+                        editClick = { editCalendar(cal.id, cal.name, cal.color) },
+                        deleteClick = {
+                            deleteCalendar(cal.id)
+                            // Deselect so that when Calendar is restored it is not expanded
+                            expandedItem = null
+                        }
+                    )
                 }
             }
         }
@@ -772,7 +773,7 @@ fun CalendarsPreview() {
     CalProvExampleTheme {
         Calendars(
             hasSelectedDir = true,
-            groupedCalendars = arrayOf(
+            calendars = arrayOf(
                 UserCalendarListItem(
                     id = 0,
                     name = "Personal",
@@ -792,7 +793,6 @@ fun CalendarsPreview() {
                     color = me.marti.calprovexample.Color("5080c8")
                 )
             ).map { cal -> InternalUserCalendar(cal, false, null) }
-                .groupBy { cal -> cal.accountName }
         )
     }
 }
@@ -848,7 +848,7 @@ fun SettingsPreview() {
 @Composable
 fun GreetingNoPermPreview() {
     CalProvExampleTheme {
-        Calendars(groupedCalendars = null)
+        Calendars(calendars = null)
     }
 }
 @Preview(widthDp = PREVIEW_WIDTH)
