@@ -86,8 +86,8 @@ class InternalUserCalendar(
 fun CalendarPermission.Dsl.externalUserCalendars(): List<UserCalendarListItem>? {
     // Calendars created by other apps (external
     // Whether the cursor will include or exclude calendars owned by this App
-    val cur = this.context.getCursor(
-        CalendarContract.Calendars.CONTENT_URI, DisplayCalendarProjection,
+    val cur = this.context.getCursor<DisplayCalendarProjection>(
+        CalendarContract.Calendars.CONTENT_URI,
         "NOT ((${CalendarContract.Calendars.ACCOUNT_TYPE} = ?) AND (${CalendarContract.Calendars.ACCOUNT_NAME} = ?))",
         arrayOf(CalendarContract.ACCOUNT_TYPE_LOCAL, this.context.getString(R.string.account_name))
     ) ?: return null
@@ -111,8 +111,8 @@ fun CalendarPermission.Dsl.externalUserCalendars(): List<UserCalendarListItem>? 
  * @returns **NULL** on error. */
 fun CalendarPermission.Dsl.internalUserCalendars(): List<InternalUserCalendar>? {
     // Calendars created by this app (internal) are those with LOCAL account type and this app's account name
-    val cur = this.context.getCursor(
-        CalendarContract.Calendars.CONTENT_URI, DisplayCalendarProjection,
+    val cur = this.context.getCursor<DisplayCalendarProjection>(
+        CalendarContract.Calendars.CONTENT_URI,
         "(${CalendarContract.Calendars.ACCOUNT_TYPE} = ?) AND (${CalendarContract.Calendars.ACCOUNT_NAME} = ?)",
         arrayOf(CalendarContract.ACCOUNT_TYPE_LOCAL, this.context.getString(R.string.account_name))
     ) ?: return null
@@ -206,9 +206,8 @@ fun CalendarPermission.Dsl.toggleSync(id: Long, sync: Boolean): Boolean {
 fun CalendarPermission.Dsl.deleteCalendar(id: Long): Boolean {
     // Events are automatically deleted with the calendar
     val client = this.context.getClient()
-    val calName = client.getCursor(
-        CalendarContract.Calendars.CONTENT_URI.withId(id),
-        DisplayCalendarProjection,
+    val calName = client.getCursor<DisplayCalendarProjection>(
+        CalendarContract.Calendars.CONTENT_URI.withId(id)
     )?.let { cursor ->
         cursor.moveToFirst()
         val name = cursor.getString(DisplayCalendarProjection.DISPLAY_NAME.ordinal)
@@ -245,8 +244,8 @@ fun CalendarPermission.Dsl.copyFromDevice(ids: List<Long>): List<InternalUserCal
     val accountName = this.context.getString(R.string.account_name)
     val successCals = mutableListOf<InternalUserCalendar>()
     val client = this.context.contentResolver.acquireContentProviderClient(CalendarContract.CONTENT_URI) ?: return null
-    val cursor = client.getCursor(
-        CalendarContract.Calendars.CONTENT_URI, CopyCalendarsProjection,
+    val cursor = client.getCursor<CopyCalendarsProjection>(
+        CalendarContract.Calendars.CONTENT_URI,
         // Select the calendars that are in the id list
         /*  Using selectionArgs to pass the IDs didn't work.
         *   Tried this but also didn't work: https://stackoverflow.com/questions/7418849/in-clause-and-placeholders.

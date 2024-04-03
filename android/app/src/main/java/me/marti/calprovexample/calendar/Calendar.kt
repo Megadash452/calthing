@@ -22,9 +22,13 @@ import androidx.core.database.getStringOrNull
  * The cursor must be [closed][ContentProviderClient.close] when it is no longer needed.
  *
  * ### Params
- * See [`ContentResolver.query()`][android.content.ContentResolver.query] for description of parameters. */
-internal fun Context.getCursor(uri: Uri, projection: QueryProjection, selection: String = "", selectionArgs: Array<String> = arrayOf(), sort: String = ""): Cursor?
-    = openCursor { this.contentResolver.query(uri, projection.projectionArray(), selection, selectionArgs, sort) }
+ * See [`ContentResolver.query()`][android.content.ContentResolver.query] for description of parameters.
+ *
+ * @param P The **[Projection][ProjectionEntry]** enum.
+ * Replaces the **projection** parameter of [android.content.ContentResolver.query]. */
+internal inline fun <reified P> Context.getCursor(uri: Uri, selection: String = "", selectionArgs: Array<String> = arrayOf(), sort: String = ""): Cursor?
+where P: Enum<P>, P: ProjectionEntry
+    = openCursor { this.contentResolver.query(uri, projectionArray<P>(), selection, selectionArgs, sort) }
 
 /** Create a **cursor** to query the data of a *Content Provider*.
  *
@@ -34,9 +38,13 @@ internal fun Context.getCursor(uri: Uri, projection: QueryProjection, selection:
  *  The cursor must be [closed][ContentProviderClient.close] when it is no longer needed.
  *
  * ### Params
- * See [`ContentResolver.query()`][android.content.ContentResolver.query] for description of parameters.*/
-internal fun ContentProviderClient.getCursor(uri: Uri, projection: QueryProjection, selection: String = "", selectionArgs: Array<String> = arrayOf(), sort: String = ""): Cursor?
-    = openCursor { this.query(uri, projection.projectionArray(), selection, selectionArgs, sort) }
+ * See [`ContentResolver.query()`][android.content.ContentResolver.query] for description of parameters.
+ *
+ * @param P The **[Projection][ProjectionEntry]** enum.
+ * Replaces the **projection** parameter of [android.content.ContentResolver.query]. */
+internal inline fun <reified P> ContentProviderClient.getCursor(uri: Uri, selection: String = "", selectionArgs: Array<String> = arrayOf(), sort: String = ""): Cursor?
+where P: Enum<P>, P: ProjectionEntry
+    = openCursor { this.query(uri, projectionArray<P>(), selection, selectionArgs, sort) }
 
 /** Consolidate the 2 getCursor functions. */
 private fun openCursor(create: () -> Cursor?): Cursor? {
@@ -93,13 +101,13 @@ internal fun Uri.withId(id: Long): Uri = ContentUris.withAppendedId(this, id)
 
 // This is used for showing debug data about calendars in the app
 class AllData(context: Context) {
-    val calendars: Data = Data(context, CalendarContract.Calendars.CONTENT_URI, EmptyProjection)
-    val events: Data = Data(context, CalendarContract.Events.CONTENT_URI, EmptyProjection)
-    val reminders: Data = Data(context, CalendarContract.Reminders.CONTENT_URI, EmptyProjection)
-    val attendees: Data = Data(context, CalendarContract.Attendees.CONTENT_URI, EmptyProjection)
+    val calendars: Data = Data(context, CalendarContract.Calendars.CONTENT_URI)
+    val events: Data = Data(context, CalendarContract.Events.CONTENT_URI)
+    val reminders: Data = Data(context, CalendarContract.Reminders.CONTENT_URI)
+    val attendees: Data = Data(context, CalendarContract.Attendees.CONTENT_URI)
 
-    class Data(context: Context, uri: Uri, projection: QueryProjection) {
-        private var cursor = initializeCursor(context, uri, projection)
+    class Data(context: Context, uri: Uri) {
+        private var cursor = initializeCursor(context, uri)
         val data: SnapshotStateList<Map<String, String>> = mutableStateListOf()
 
         fun queryNext() {
@@ -107,8 +115,8 @@ class AllData(context: Context) {
         }
 
         companion object {
-            private fun initializeCursor(context: Context, uri: Uri, projection: QueryProjection): Cursor {
-                return context.getCursor(uri, projection) ?: throw Exception("Cant get query cursor")
+            private fun initializeCursor(context: Context, uri: Uri): Cursor {
+                return context.getCursor<EmptyProjection>(uri) ?: throw Exception("Cant get query cursor")
             }
             private fun query(cursor: Cursor): Map<String, String> {
                 cursor.moveToNext()
