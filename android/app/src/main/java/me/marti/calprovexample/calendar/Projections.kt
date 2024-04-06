@@ -19,18 +19,14 @@ import kotlin.enums.enumEntries
  *  The value of this field will be **`NULL`** if calendar was *not copied* from another calendar in the device. */
 const val IMPORTED_FROM_COLUMN = CalendarContract.Calendars.CAL_SYNC1
 
-/** The projection that is passed to a `CursorLoader` to tell it what columns we want to read.
- * This is the `SELECT` part of the query.
- * Should be implemented by the **`companion object`** of an enum whose entries are the columns.
+/** A skeleton for the members of a Projection that can be used to *query* the Calendar ContentProvider.
  *
- * The enums in question must implement [ProjectionEntry].
+ * Projections are the `SELECT` part of a query.
+ * Projections are **enum classes** whose entries are the **columns** to be loaded.
+ * They are passed as the *Generic Type* to a [CursorLoader][getCursor] to tell it what columns we want to read.
+ *
+ * This interface is implemented by **all Projection enums**.
  * @sample DisplayCalendarProjection */
-// Methods for this interface are defined below. Cant be defined here because of 'reified' shenanigans...
-interface QueryProjection<P>
-where P : Enum<P>, P: ProjectionEntry
-
-/** This interface is implemented by **all Projection enums**.
- * Implementors should have a *Companion Object* that implements [QueryProjection]. */
 interface ProjectionEntry {
     /** The string value of the *column name* as it exists in memory. */
     val column: String
@@ -43,19 +39,16 @@ where P: Enum<P>, P: ProjectionEntry {
 }
 
 /** Load the data of the current *row* of the cursor into [ContentValues] using the *columns* of a **projection**. */
-// Chose to user QueryProjection receiver to make it more readable since this will only be used in external calls,
-// unlike projectionArray() which is used in utility functions to map between a Projection Enum and an actual projection string.
-@Suppress("UnusedReceiverParameter")
-internal inline fun <reified P> QueryProjection<P>.loadCursorData(cursor: Cursor): ContentValues
+internal inline fun <reified P> Cursor.loadRowData(): ContentValues
 where P: Enum<P>, P: ProjectionEntry {
     val data = ContentValues()
     enumEntries<P>().forEach { entry ->
-        when (cursor.getType(entry.ordinal)) {
+        when (this.getType(entry.ordinal)) {
             // Use the cursor.get* variants that have the largest size to avoid errors.
-            Cursor.FIELD_TYPE_INTEGER -> cursor.getLongOrNull(entry.ordinal)?.let { data.put(entry.column, it) }
-            Cursor.FIELD_TYPE_FLOAT -> cursor.getDoubleOrNull(entry.ordinal)?.let { data.put(entry.column, it) }
-            Cursor.FIELD_TYPE_STRING -> cursor.getStringOrNull(entry.ordinal)?.let { data.put(entry.column, it) }
-            Cursor.FIELD_TYPE_BLOB -> cursor.getBlobOrNull(entry.ordinal)?.let { data.put(entry.column, it) }
+            Cursor.FIELD_TYPE_INTEGER -> this.getLongOrNull(entry.ordinal)?.let { data.put(entry.column, it) }
+            Cursor.FIELD_TYPE_FLOAT -> this.getDoubleOrNull(entry.ordinal)?.let { data.put(entry.column, it) }
+            Cursor.FIELD_TYPE_STRING -> this.getStringOrNull(entry.ordinal)?.let { data.put(entry.column, it) }
+            Cursor.FIELD_TYPE_BLOB -> this.getBlobOrNull(entry.ordinal)?.let { data.put(entry.column, it) }
             Cursor.FIELD_TYPE_NULL -> {} // Put nothing
         }
     }
@@ -63,10 +56,7 @@ where P: Enum<P>, P: ProjectionEntry {
 }
 
 /** A projection that will get all the columns. Equivalent to **`SELECT *`** */
-internal enum class EmptyProjection: ProjectionEntry {
-    ;
-    companion object: QueryProjection<EmptyProjection>
-}
+internal enum class EmptyProjection: ProjectionEntry {;}
 
 // Gets only the data required to display Calendar Info
 internal enum class DisplayCalendarProjection(override val column: String): ProjectionEntry {
@@ -76,13 +66,11 @@ internal enum class DisplayCalendarProjection(override val column: String): Proj
     COLOR(CalendarContract.Calendars.CALENDAR_COLOR),
     SYNC(CalendarContract.Calendars.SYNC_EVENTS),
     /** Used only with Calendars owned by this app (internal). See [IMPORTED_FROM_COLUMN]. */
-    IMPORTED_FROM(IMPORTED_FROM_COLUMN);
-
-    companion object : QueryProjection<DisplayCalendarProjection>
+    IMPORTED_FROM(IMPORTED_FROM_COLUMN),
 }
 
 internal enum class CopyCalendarsProjection(override val column: String): ProjectionEntry {
-    ID(CalendarContract.Calendars._ID),
+    ID(CalendarContract.Calendars._ID), // Excluded from copied data. Only used to get Events
     DISPLAY_NAME(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME),
     COLOR(CalendarContract.Calendars.CALENDAR_COLOR),
     // COLOR_KEY(CalendarContract.Calendars.CALENDAR_COLOR_KEY), // Including color key causes an error
@@ -98,11 +86,57 @@ internal enum class CopyCalendarsProjection(override val column: String): Projec
     LOCATION(CalendarContract.Calendars.CALENDAR_LOCATION),
     IS_PRIMARY(CalendarContract.Calendars.IS_PRIMARY),
     SYNC_EVENTS(CalendarContract.Calendars.SYNC_EVENTS),
-    VISIBLE(CalendarContract.Calendars.VISIBLE);
-
-    companion object : QueryProjection<CopyCalendarsProjection>
+    VISIBLE(CalendarContract.Calendars.VISIBLE),
 }
 
-internal class CopyEventsProjection {
-    // val entries
+internal enum class CopyEventsProjection(override val column: String): ProjectionEntry {
+    ID(CalendarContract.Events._ID), // Excluded from copied data. Only used to get Reminders and Attendees
+    // CALENDAR_ID(CalendarContract.Events.CALENDAR_ID),
+    COLOR(CalendarContract.Events.EVENT_COLOR),
+    TITLE(CalendarContract.Events.TITLE),
+    ORGANIZER(CalendarContract.Events.ORGANIZER),
+    LOCATION(CalendarContract.Events.EVENT_LOCATION),
+    DESCRIPTION(CalendarContract.Events.DESCRIPTION),
+    TIMEZONE(CalendarContract.Events.EVENT_TIMEZONE),
+    END_TIMEZONE(CalendarContract.Events.EVENT_END_TIMEZONE),
+    DATE_START(CalendarContract.Events.DTSTART),
+    DATE_END(CalendarContract.Events.DTEND),
+    DURATION(CalendarContract.Events.DURATION),
+    ALL_DAY(CalendarContract.Events.ALL_DAY),
+    R_RULE(CalendarContract.Events.RRULE),
+    R_DATE(CalendarContract.Events.RDATE),
+    EX_RULE(CalendarContract.Events.EXRULE),
+    EX_DATE(CalendarContract.Events.EXDATE),
+    // TODO: If event is an exception, find the ID of the copied event for which this will become an exception.
+    // ORIGINAL_ID(CalendarContract.Events.ORIGINAL_ID),
+    // ORIGINAL_SYNC_ID(CalendarContract.Events.ORIGINAL_SYNC_ID),
+    // ORIGINAL_INSTANCE_TIME(CalendarContract.Events.ORIGINAL_INSTANCE_TIME),
+    // ORIGINAL_ALL_DAY(CalendarContract.Events.ORIGINAL_ALL_DAY),
+    ACCESS_LEVEL(CalendarContract.Events.ACCESS_LEVEL),
+    AVAILABILITY(CalendarContract.Events.AVAILABILITY),
+    GUESTS_CAN_MODIFY(CalendarContract.Events.GUESTS_CAN_MODIFY),
+    GUESTS_CAN_INVITE_OTHERS(CalendarContract.Events.GUESTS_CAN_INVITE_OTHERS),
+    GUESTS_CAN_SEE_GUESTS(CalendarContract.Events.GUESTS_CAN_SEE_GUESTS),
+    // CalendarContract.Events.CUSTOM_APP_PACKAGE
+    // CalendarContract.Events.CUSTOM_APP_URI
+    // CalendarContract.Events.UID_2445
+}
+
+internal enum class CopyRemindersProjection(override val column: String): ProjectionEntry {
+    // ID(CalendarContract.Reminders._ID),
+    // EVENT_ID(CalendarContract.Reminders.EVENT_ID),
+    METHOD(CalendarContract.Reminders.METHOD),
+    MINUTES(CalendarContract.Reminders.MINUTES),
+}
+
+internal enum class CopyAttendeesProjection(override val column: String): ProjectionEntry {
+    // ID(CalendarContract.Attendees._ID),
+    // EVENT_ID(CalendarContract.Attendees.EVENT_ID),
+    ATTENDEE_NAME(CalendarContract.Attendees.ATTENDEE_NAME),
+    ATTENDEE_EMAIL(CalendarContract.Attendees.ATTENDEE_EMAIL),
+    ATTENDEE_RELATIONSHIP(CalendarContract.Attendees.ATTENDEE_RELATIONSHIP),
+    ATTENDEE_TYPE(CalendarContract.Attendees.ATTENDEE_TYPE),
+    ATTENDEE_STATUS(CalendarContract.Attendees.ATTENDEE_STATUS),
+    ATTENDEE_IDENTITY(CalendarContract.Attendees.ATTENDEE_IDENTITY),
+    ATTENDEE_ID_NAMESPACE(CalendarContract.Attendees.ATTENDEE_ID_NAMESPACE),
 }

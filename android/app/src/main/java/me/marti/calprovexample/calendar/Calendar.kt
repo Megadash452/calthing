@@ -52,7 +52,7 @@ private fun openCursor(create: () -> Cursor?): Cursor? {
         // No need to use the CursorLoader since all these functions are run in a separate thread.
         val cur = create()
         if (cur == null)
-            println("Returned cursor was null")
+            Log.e("getCursor", "Returned cursor was null")
         cur
     } catch(e: Exception) {
         Log.e("getCursor", "Exception occurred while loading calendar query cursor:\n$e")
