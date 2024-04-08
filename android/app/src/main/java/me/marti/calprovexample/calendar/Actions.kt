@@ -8,7 +8,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.core.database.getLongOrNull
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.R
-import me.marti.calprovexample.ui.CalendarPermission
+import me.marti.calprovexample.ui.CalendarPermissionScope
 
 /** Display data about a calendar to the user.
  * @see ExternalUserCalendar
@@ -83,7 +83,7 @@ class InternalUserCalendar(
  * The resulting Calendars can then be converted to [ExternalUserCalendar].
  * For that, see [ExternalUserCalendar.importedTo].
  * @returns **NULL** on error. */
-fun CalendarPermission.Dsl.externalUserCalendars(): List<UserCalendarListItem>? {
+fun CalendarPermissionScope.externalUserCalendars(): List<UserCalendarListItem>? {
     // Calendars created by other apps (external
     // Whether the cursor will include or exclude calendars owned by this App
     val cur = this.context.getCursor<DisplayCalendarProjection>(
@@ -109,7 +109,7 @@ fun CalendarPermission.Dsl.externalUserCalendars(): List<UserCalendarListItem>? 
 
 /** Get a list of Calendars owned by this App that the user can sync.
  * @returns **NULL** on error. */
-fun CalendarPermission.Dsl.internalUserCalendars(): List<InternalUserCalendar>? {
+fun CalendarPermissionScope.internalUserCalendars(): List<InternalUserCalendar>? {
     // Calendars created by this app (internal) are those with LOCAL account type and this app's account name
     val cur = this.context.getCursor<DisplayCalendarProjection>(
         CalendarContract.Calendars.CONTENT_URI,
@@ -137,7 +137,7 @@ fun CalendarPermission.Dsl.internalUserCalendars(): List<InternalUserCalendar>? 
 
 /** @return Returns the basic data about the Calendar so it can be added to the *`userCalendars`* list.
  *          **`Null`** if adding the calendar failed. */
-fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): InternalUserCalendar? {
+fun CalendarPermissionScope.newCalendar(name: String, color: Color): InternalUserCalendar? {
     val accountName = this.context.getString(R.string.account_name)
 
     val newCalUri = this.context.contentResolver.insert(CalendarContract.Calendars.CONTENT_URI.asSyncAdapter(accountName), ContentValues().apply {
@@ -182,7 +182,7 @@ fun CalendarPermission.Dsl.newCalendar(name: String, color: Color): InternalUser
     )
 }
 
-fun CalendarPermission.Dsl.editCalendar(id: Long, newName: String, newColor: Color): Boolean {
+fun CalendarPermissionScope.editCalendar(id: Long, newName: String, newColor: Color): Boolean {
     return this.context.updateCalendar(
         id = id,
         accountName = this.context.getString(R.string.account_name),
@@ -193,7 +193,7 @@ fun CalendarPermission.Dsl.editCalendar(id: Long, newName: String, newColor: Col
     )
 }
 
-fun CalendarPermission.Dsl.toggleSync(id: Long, sync: Boolean): Boolean {
+fun CalendarPermissionScope.toggleSync(id: Long, sync: Boolean): Boolean {
     return this.context.updateCalendar(
         id = id,
         values = ContentValues().apply {
@@ -204,7 +204,7 @@ fun CalendarPermission.Dsl.toggleSync(id: Long, sync: Boolean): Boolean {
 
 /** Delete a Calendar from the System ContentProvider.
  * @return **`true`** if the Calendar was successfully deleted, **`false`** if it wasn't. */
-fun CalendarPermission.Dsl.deleteCalendar(id: Long): Boolean {
+fun CalendarPermissionScope.deleteCalendar(id: Long): Boolean {
     // Events are automatically deleted with the calendar
     val client = this.context.getClient()
     val calName = client.getCursor<DisplayCalendarProjection>(
@@ -241,7 +241,7 @@ fun CalendarPermission.Dsl.deleteCalendar(id: Long): Boolean {
  *
  * @returns A list of calendar data of the Calendars that were successfully added.
  *          **`Null`** if there was an error setting up the contentProvider cursor. */
-fun CalendarPermission.Dsl.copyFromDevice(ids: List<Long>): List<InternalUserCalendar>? {
+fun CalendarPermissionScope.copyFromDevice(ids: List<Long>): List<InternalUserCalendar>? {
     val accountName = this.context.getString(R.string.account_name)
     // List of Calendars that were successfully copied (even if there were errors in copying other things, like Events).
     val successCals = mutableListOf<InternalUserCalendar>()

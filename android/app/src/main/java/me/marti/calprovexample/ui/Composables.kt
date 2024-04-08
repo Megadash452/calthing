@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -92,6 +93,7 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.tryMap
 import me.marti.calprovexample.Color as InternalColor
@@ -515,13 +517,14 @@ private fun ExpandableFloatingActionButtons(
 @Composable
 private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded: Boolean, collapse: () -> Unit) {
     AnimatedVisibility(modifier = modifier, visible = expanded, enter = fadeIn(), exit = fadeOut()) {
-        Box(Modifier
-            .fillMaxSize()
-            // .background(Color(0xc3000000))
-            // Weird flash glitch during expanding fade animation (only noticeable in dark mode)
-            // Seems to only be caused by MaterialTheme.colorScheme.background and surface
-            .background(MaterialTheme.colorScheme.surfaceDim.copy(alpha = 0.88f)) // 0xe1000000
-            .clickable(onClick = collapse)
+        Box(
+            Modifier
+                .fillMaxSize()
+                // .background(Color(0xc3000000))
+                // Weird flash glitch during expanding fade animation (only noticeable in dark mode)
+                // Seems to only be caused by MaterialTheme.colorScheme.background and surface
+                .background(MaterialTheme.colorScheme.surfaceDim.copy(alpha = 0.88f)) // 0xe1000000
+                .clickable(onClick = collapse)
         )
     }
 }
@@ -601,10 +604,7 @@ fun Calendars(
         } else {
             // Items in this list can be expanded to show more actions. Value is the id of the expanded item.
             var expandedItem: Long? by rememberSaveable { mutableStateOf(null) }
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp),
-                contentPadding = PaddingValues(bottom = 80.dp, start = LIST_PADDING.dp, end = LIST_PADDING.dp, top = LIST_PADDING.dp)
-            ) {
+            CalendarsList {
                 this.items(calendars, key = { cal -> cal.id }) { cal ->
                     CalendarListItem(
                         cal = cal,
@@ -626,6 +626,26 @@ fun Calendars(
             }
         }
     }
+}
+
+/** List to display calendars owned by this App.
+ * @param padding Padding that is applied the *scrolled inner surface* of the [LazyColumn],
+ *        effectively the same as applying padding on the first and last items.
+ *        Passed to [LazyColumn]'s **`contentPadding`** parameter
+ * @param bottomPadding Extra padding that may be necessary to position items so that they aren't hidden by the FAB. */
+@Composable
+private fun CalendarsList(
+    modifier: Modifier = Modifier,
+    padding: Dp = LIST_PADDING.dp,
+    bottomPadding: Dp = padding,
+    content: LazyListScope.() -> Unit
+) {
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(LIST_ITEM_SPACING.dp),
+        contentPadding = PaddingValues(bottom = bottomPadding, start = padding, end = padding, top = padding),
+        content = content
+    )
 }
 
 @Composable
@@ -659,7 +679,7 @@ private fun CalendarListItem(
                 AnimatedVisibility(visible = expanded) {
                     Spacer(Modifier.size(4.dp))
                     HorizontalDivider()
-                    Row {
+                    Row(Modifier.padding(top = 4.dp)) {
                         val buttonSize = 36.dp
                         IconButton(modifier = Modifier.size(buttonSize), onClick = editClick) {
                             Icon(Icons.Default.Create, "Edit Calendar")
@@ -763,37 +783,52 @@ fun PlainTooltipBox(modifier: Modifier = Modifier, tooltipContent: @Composable (
     )
 }
 
-
-
 @Preview(showBackground = true, widthDp = PREVIEW_WIDTH)
 @Composable
 fun CalendarsPreview() {
     val acc = "me@mydomain.me"
 
     CalProvExampleTheme {
-        Calendars(
-            hasSelectedDir = true,
-            calendars = arrayOf(
-                UserCalendarListItem(
-                    id = 0,
-                    name = "Personal",
-                    accountName = acc,
-                    color = me.marti.calprovexample.Color("cd58bb")
-                ),
-                UserCalendarListItem(
-                    id = 1,
-                    name = "Friend",
-                    accountName = "Friend",
-                    color = me.marti.calprovexample.Color("58cdc9")
-                ),
-                UserCalendarListItem(
-                    id = 2,
-                    name = "Work",
-                    accountName = acc,
-                    color = me.marti.calprovexample.Color("5080c8")
-                )
-            ).map { cal -> InternalUserCalendar(cal, false, null) }
-        )
+        Column {
+            CalendarsList {
+                this.item {
+                    CalendarListItem(
+                        cal = UserCalendarListItem(
+                            id = 0,
+                            name = "Personal",
+                            accountName = acc,
+                            color = me.marti.calprovexample.Color("cd58bb")
+                        ),
+                        isSynced = false,
+                        expanded = false
+                    )
+                }
+                this.item {
+                    CalendarListItem(
+                        cal = UserCalendarListItem(
+                            id = 1,
+                            name = "Friend",
+                            accountName = "Friend",
+                            color = me.marti.calprovexample.Color("58cdc9")
+                        ),
+                        isSynced = true,
+                        expanded = false
+                    )
+                }
+                this.item {
+                    CalendarListItem(
+                        cal = UserCalendarListItem(
+                            id = 2,
+                            name = "Work",
+                            accountName = acc,
+                            color = me.marti.calprovexample.Color("5080c8")
+                        ),
+                        isSynced = true,
+                        expanded = true
+                    )
+                }
+            }
+        }
     }
 }
 @OptIn(ExperimentalMaterial3Api::class)
@@ -849,6 +884,13 @@ fun SettingsPreview() {
 fun GreetingNoPermPreview() {
     CalProvExampleTheme {
         Calendars(calendars = null)
+    }
+}
+@Preview(showBackground = true, widthDp = PREVIEW_WIDTH)
+@Composable
+fun SpinnerPreview() {
+    CalProvExampleTheme {
+        CalendarSuspendDialog("Waiting for something...")
     }
 }
 @Preview(widthDp = PREVIEW_WIDTH)

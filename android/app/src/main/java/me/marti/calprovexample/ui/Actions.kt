@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.github.skydoves.colorpicker.compose.BrightnessSlider
@@ -111,16 +112,17 @@ fun EditCalendarAction(
     // The name of the Calendar. Is the string argument of the `submit` function
     @Suppress("NAME_SHADOWING")
     var name by rememberSaveable { mutableStateOf(name) }
+    // Whether the error message should be shown and the submit button disabled
+    var nameError by remember { mutableStateOf(false) }
+    fun nameIsValid(): Boolean = name.isNotBlank()
     @Suppress("NAME_SHADOWING")
     var color by rememberSaveable { mutableIntStateOf(color.toColor().toArgb()) }
-    var nameError by rememberSaveable { mutableStateOf(false) }
     // Whether to show ColorPicker or the Edit dialog
     var pickColor by rememberSaveable { mutableStateOf(false) }
     // Does all the checks before calling `submit`
     val onSubmit = {
-        nameError = name.isBlank()
-
-        if (!nameError) {
+        nameError = !nameIsValid()
+        if (nameIsValid()) {
             close()
             submit(name, Color(color))
         }
@@ -145,13 +147,12 @@ fun EditCalendarAction(
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // A circle showing the color for the Calendar
-                    Box(
-                        Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .background(Color(color).toColor())
-                            .border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                            .clickable { pickColor = true }
+                    Box(Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(Color(color).toColor())
+                        .border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                        .clickable { pickColor = true }
                     )
                     Spacer(Modifier.size(8.dp))
                     TextField(
@@ -162,7 +163,10 @@ fun EditCalendarAction(
                             Text("Name can't be blank")
                         }} else null,
                         singleLine = true,
-                        onValueChange = { text -> name = text }
+                        onValueChange = {
+                            text -> name = text
+                            nameError = !nameIsValid()
+                        }
                     )
                 }
             }
@@ -194,7 +198,9 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
                 submit(selectedIds.toList().map { (id, _) -> id  })
             }) { Text("Select") }
         },
-        text = {
+        text = if (calendars.isEmpty()) {{
+            Text("This device has no calendars to import", modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        }} else {{
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 calendars.forEach { (accountName, group) ->
                     this.stickyHeader { StickyHeader(text = accountName, leadingContent = {
@@ -238,7 +244,7 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
                     }
                 }
             }
-        }
+        }}
     )
 }
 
@@ -246,25 +252,22 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
 private fun Calendar(modifier: Modifier = Modifier, color: Color, name: String, selected: Boolean, importedTo: String? = null, onClick: () -> Unit) {
     val enabled = importedTo == null
     val content = @Composable {
-        Row(
-            modifier
-                .fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
-                .let {
-                    if (enabled) {
-                        val selectedColor =
-                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
-                        it
-                            .background(if (selected) selectedColor else androidx.compose.ui.graphics.Color.Transparent)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = rememberRipple(
-                                    color = if (selected) MaterialTheme.colorScheme.surface else selectedColor
-                                ),
-                                onClick = onClick
-                            )
-                    } else it
-                },
+        Row(modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .let {
+                if (enabled) {
+                    val selectedColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
+                    it.background(if (selected) selectedColor else androidx.compose.ui.graphics.Color.Transparent)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = rememberRipple(
+                                color = if (selected) MaterialTheme.colorScheme.surface else selectedColor
+                            ),
+                            onClick = onClick
+                        )
+                } else it
+            },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -357,9 +360,10 @@ private fun ColorPickerDialog(
                     }
                 )
                 Spacer(Modifier.size(6.dp))
-                BrightnessSlider(modifier = Modifier
-                    .fillMaxWidth()
-                    .height(42.dp), controller = controller)
+                BrightnessSlider(
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    controller = controller
+                )
                 Spacer(Modifier.size(12.dp))
 
                 Row {
