@@ -4,9 +4,15 @@ import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -43,6 +50,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,6 +73,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.rememberTooltipState
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -75,6 +84,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -85,17 +97,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.R
-import me.marti.calprovexample.calendar.UserCalendarListItem
-import me.marti.calprovexample.ui.theme.CalProvExampleTheme
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.Dp
 import me.marti.calprovexample.calendar.InternalUserCalendar
+import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.tryMap
+import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.Color as InternalColor
 
 const val OUTER_PADDING = 8
@@ -428,6 +440,8 @@ class ExpandableFab private constructor(
  * @param collapse A function called when an Action Button is clicked in *expanded mode*,
  *                 will set the value of **expanded** to `false`.
  * @param data The data for the `FloatingActionButton`. */
+@Suppress("LocalVariableName")
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 private fun ExpandableFloatingActionButtons(
     modifier: Modifier = Modifier,
@@ -436,45 +450,92 @@ private fun ExpandableFloatingActionButtons(
     collapse: () -> Unit = {},
     data: ExpandableFab
 ) {
-    var fabWidth by remember { mutableStateOf(0.dp) }
-    val spacing = 12.dp
+    val FAB_SPACING = 12.dp
+    val LABEL_SPACING = 12.dp
+    val SMALL_FAB_SIZE = 40.dp
+    val SMALL_FAB_ELEVATION = 6.dp
+    val FAB_SIZE = 56.dp
+    fun <T> animationSpec(): @Composable (Transition.Segment<Boolean>.() -> FiniteAnimationSpec<T>)
+        = { spring(stiffness = Spring.StiffnessMediumLow) }
+    // The parent transition to all animations in this Composable (except Main FAB color and icon)
+    val transition = updateTransition(
+        targetState = expanded,
+        label = "Expandable FAB transition"
+    )
+    var textHeight by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
     @Composable
-    fun ActionLabel(text: String) {
-        AnimatedVisibility(visible = expanded) {
-            Text(text, fontWeight = FontWeight.SemiBold)
+    fun ActionLabel(text: String, modifier: Modifier = Modifier) {
+        transition.AnimatedVisibility(
+            modifier = modifier,
+            visible = { it },
+            enter = fadeIn() + expandIn(expandFrom = Alignment.CenterEnd),
+            exit = shrinkOut(shrinkTowards = Alignment.CenterEnd) + fadeOut()
+        ) {
+            Text(text, fontWeight = FontWeight.SemiBold, modifier = if (textHeight == 0.dp) {
+                Modifier.onGloballyPositioned {
+                    textHeight = with(density) { it.size.height.toDp() }
+                }
+            } else Modifier)
         }
     }
 
     Column(modifier = modifier, horizontalAlignment = Alignment.End) {
-        // Sub actions are shown from the bottom up, so it is reversed
-        remember { data.actions.rest.reversed() }.forEach { action ->
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
-                ActionLabel(action.label)
-                // FIXME: shadows are very glitchy when animating (for both the big and small fabs) (probably has to do with AnimatedVisibility clipping its content during animation)
-                // RowScope (this) has its own AnimatedVisibility which has slightly different animations.
-                this.AnimatedVisibility(visible = expanded, enter = expandIn(), exit = shrinkOut()) {
-                    Box(Modifier.width(fabWidth), contentAlignment = Alignment.Center) {
-                        SmallFloatingActionButton(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            contentColor = MaterialTheme.colorScheme.primary,
-                            onClick = {
-                                collapse()
-                                action.onClick()
-                            },
-                            content = action.icon
-                        )
-                    }
-                }
+        Box(contentAlignment = Alignment.BottomEnd) {
+            val scale by transition.animateFloat(animationSpec(), label = "FAB Scale") { expanded ->
+                if (expanded) 1.0f else 0.0f
+            }
+            val elevation by transition.animateDp(animationSpec(), label = "FAB elevation") { expanded ->
+                if (expanded) SMALL_FAB_ELEVATION else 0.dp
+            }
+            val spacing by transition.animateDp(animationSpec(), label = "FAB spacing") { expanded ->
+                if (expanded) FAB_SPACING else 0.dp
+            }
+            val shape = FloatingActionButtonDefaults.smallShape // shape of the FAB shadow
+            // Renders from the bottom-up
+            data.actions.rest.forEachIndexed { i, action ->
+                // Use lambda version of Modifiers to avoid recomposition. https://developer.android.com/develop/ui/compose/animation/quick-guide#optimize-performance
+                val fabYOffset = { spacing + (spacing + SMALL_FAB_SIZE * scale) * i } // Put in lambda to avoid recomposition
+                ActionLabel(action.label, modifier = Modifier
+                    // All offsets must be negative because offset direction is from Bottom Left
+                    .offset(x = -FAB_SIZE - LABEL_SPACING)
+                    .offset { IntOffset(
+                        x = 0, y = (-fabYOffset() - (SMALL_FAB_SIZE - textHeight) / 2).roundToPx()
+                    )
+                })
+                SmallFloatingActionButton(
+                    modifier = Modifier
+                        .size(SMALL_FAB_SIZE)
+                        .offset { IntOffset(
+                            x = (-(FAB_SIZE - SMALL_FAB_SIZE) / 2).roundToPx(), y = -fabYOffset().roundToPx()
+                        ) }
+                        .graphicsLayer {
+                            // Set the origin of scaling to the bottom-center
+                            this.transformOrigin = TransformOrigin(0.5f, 1.0f)
+                            this.scaleX = scale; this.scaleY = scale
+                            this.shape = shape
+                            this.shadowElevation = elevation.toPx()
+                        },
+                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(SMALL_FAB_ELEVATION),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                    onClick = {
+                        collapse()
+                        action.onClick()
+                    },
+                    content = action.icon
+                )
             }
         }
-        Row(modifier = Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             ActionLabel(data.actions.first.label)
-            val mainFab = @Composable {
-                val density = LocalDensity.current
+            Spacer(Modifier.width(LABEL_SPACING))
+            PlainTooltipBox(
+                tooltipContent = { Text(data.description!!) },
+                enabled = data.description != null && !expanded,
+            ) {
                 FloatingActionButton(
-                    modifier = Modifier.onGloballyPositioned {
-                        fabWidth = with(density) { it.size.width.toDp() }
-                    },
+                    modifier = Modifier.size(FAB_SIZE),
                     containerColor = animateColorAsState(
                         if (expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
                         label = "Main FAB Container Color Animation"
@@ -486,7 +547,7 @@ private fun ExpandableFloatingActionButtons(
                     } } else
                         expand
                 ) {
-                    Crossfade(targetState = expanded, label = "Calendars FAB Expanded") { expanded ->
+                    Crossfade(targetState = expanded, label = "Main FAB Icon") { expanded ->
                         if (expanded)
                             data.actions.first.icon()
                         else
@@ -494,14 +555,6 @@ private fun ExpandableFloatingActionButtons(
                     }
                 }
             }
-
-            if (data.description != null && !expanded)
-                PlainTooltipBox(
-                    tooltipContent = { Text(data.description) },
-                    content = mainFab
-                )
-            else
-                mainFab()
         }
     }
 }
@@ -516,15 +569,14 @@ private fun ExpandableFloatingActionButtons(
  * @see ExpandableFloatingActionButtons */
 @Composable
 private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded: Boolean, collapse: () -> Unit) {
-    AnimatedVisibility(modifier = modifier, visible = expanded, enter = fadeIn(), exit = fadeOut()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                // .background(Color(0xc3000000))
-                // Weird flash glitch during expanding fade animation (only noticeable in dark mode)
-                // Seems to only be caused by MaterialTheme.colorScheme.background and surface
-                .background(MaterialTheme.colorScheme.surfaceDim.copy(alpha = 0.88f)) // 0xe1000000
-                .clickable(onClick = collapse)
+    AnimatedVisibility(modifier = modifier, visible = expanded, enter = fadeIn(), exit = fadeOut(), label = "Backdrop Visibility") {
+        Box(Modifier
+            .fillMaxSize()
+            // .background(Color(0xc3000000))
+            // Weird flash glitch during expanding fade animation (only noticeable in dark mode)
+            // Seems to only be caused by MaterialTheme.colorScheme.background and surface
+            .background(MaterialTheme.colorScheme.surfaceDim.copy(alpha = 0.88f)) // 0xe1000000
+            .clickable(onClick = collapse)
         )
     }
 }
@@ -605,6 +657,7 @@ fun Calendars(
             // Items in this list can be expanded to show more actions. Value is the id of the expanded item.
             var expandedItem: Long? by rememberSaveable { mutableStateOf(null) }
             CalendarsList {
+                // TODO: animate insertions and deletions
                 this.items(calendars, key = { cal -> cal.id }) { cal ->
                     CalendarListItem(
                         cal = cal,
@@ -773,11 +826,13 @@ fun IconTextButton(modifier: Modifier = Modifier, icon: Painter, text: String, o
 /** The new `TooltipBox` is more verbose than the Plain/RichTooltipBox in the previous version...  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlainTooltipBox(modifier: Modifier = Modifier, tooltipContent: @Composable () -> Unit, content: @Composable () -> Unit) {
+fun PlainTooltipBox(modifier: Modifier = Modifier, enabled: Boolean = true, tooltipContent: @Composable () -> Unit, content: @Composable () -> Unit) {
     TooltipBox(
         modifier = modifier,
         positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
         state = rememberTooltipState(),
+        focusable = false,
+        enableUserInput = enabled,
         tooltip = { this.PlainTooltip(content = tooltipContent) },
         content = content
     )
