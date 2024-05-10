@@ -1,20 +1,52 @@
 #![cfg(target_os="android")]
 #![allow(non_snake_case)]
 
+use std::ffi::CStr;
+use std::path::Path;
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
+
 use jni::{
-    JNIEnv,
-    objects::{JClass, JString, JValue, JObject}
+    objects::{JClass, JObject, JString, JValue}, sys::jstring, JNIEnv
 };
 
 #[no_mangle]
-pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_add(mut env: JNIEnv, _class: JClass, x: i32, y: i32) -> i32 {
-    let l = AndroidLogger::new(&mut env).unwrap();
-    let r = davsync::add(x, y);
-
-    l.debug(&mut env, format!("Add function ran from Rust. Hi {r}"));
-
-    r
+pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_write_data_to_file<'local>(env: JNIEnv<'local>, _class: JClass<'local>, data: JObject<'local>, path: JString<'local>) -> jstring {
+    let path: &Path = unsafe {
+        OsStr::from_bytes(
+            CStr::from_ptr(env.get_string_unchecked(&path).expect("String 'path` can't be NULL.").get_raw())
+                .to_bytes()
+        ).as_ref()
+    };
+    todo!()
 }
+
+// #[no_mangle]
+// pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_add(mut env: JNIEnv, _class: JClass, x: i32, y: i32) -> i32 {
+//     let l = AndroidLogger::new(&mut env).unwrap();
+//     let r = davsync::add(x, y);
+
+//     l.debug(&mut env, format!("Add function ran from Rust. Hi {r}"));
+
+//     r
+// }
+
+// #[no_mangle]
+// pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_readFile<'local>(env: JNIEnv<'local>, _class: JClass<'local>, path: JString<'local>) -> jstring {
+//     let path: &Path = unsafe {
+//         OsStr::from_bytes(
+//             CStr::from_ptr(env.get_string_unchecked(&path).expect("String 'path` can't be NULL.").get_raw())
+//                 .to_bytes()
+//         ).as_ref()
+//     };
+//     let result = match davsync::read_file(path) {
+//         Ok(result) => result,
+//         Err(error) => error.to_string()
+//     };
+
+//     env.new_string(result).expect("Can't create Java String").into_raw()
+// }
+
 
 // /// A pair of streams which will be used to send logs to the android logging class.
 // struct LoggingStreams {
