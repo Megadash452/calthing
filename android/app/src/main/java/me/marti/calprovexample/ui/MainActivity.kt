@@ -2,6 +2,7 @@ package me.marti.calprovexample.ui
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -10,6 +11,8 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
+import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
@@ -35,10 +38,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.Color
+import me.marti.calprovexample.DavSyncRs
 import me.marti.calprovexample.GroupedList
+import me.marti.calprovexample.ImportFileResult
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.PreferenceKey
 import me.marti.calprovexample.R
@@ -55,6 +61,7 @@ import me.marti.calprovexample.calendar.newCalendar
 import me.marti.calprovexample.calendar.toggleSync
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
+import me.marti.calprovexample.fileName
 
 class MainActivity : ComponentActivity() {
     private val calendarPermission = CalendarPermission(this)
@@ -74,27 +81,70 @@ class MainActivity : ComponentActivity() {
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) {
-            println("User cancelled the file picker.")
-        } else {
-            println("User selected $uri for synced .ics files.")
-            this.syncDir.value = uri
-            // Preserve access to the directory. Otherwise, access would be revoked when app is closed.
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            println("OpenDir: User cancelled the file picker.")
+            return@registerForActivityResult
+        }
+        println("User selected $uri for synced .ics files.")
+        this.syncDir.value = uri
+        // Preserve access to the directory. Otherwise, access would be revoked when app is closed.
+        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
 
-            // TODO: use DocumentContract instead (performance)
-            val dir = DocumentFile.fromTreeUri(this.baseContext, uri)!!
-            println("Files in ${uri.path}:")
-            for (file in dir.listFiles()) {
-                println("\t${file.name}")
+        // TODO: use DocumentContract instead (performance)
+        val dir = DocumentFile.fromTreeUri(this.baseContext, uri)!!
+        println("Files in ${uri.path}:")
+        for (file in dir.listFiles()) {
+            println("\t${file.name}")
+        }
+
+        // println("Calendars on device:")
+        // for (cal in userCalendars(this.baseContext)!!) {
+        //     println("\t$cal")
+        // }
+    }
+    /** Channel for sending messages between *[importFilesIntent] handler* and the UI.
+     *
+     * Contains the **fileName** if there was an import conflict (file exists) s and a dialog needs to be shown to the user.
+     * Contains `NULL` otherwise (error or success) */
+    private val importChannel = Channel<String?>()
+    /** Register for file picker intent. */
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private val importFilesIntent = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) {
+            println("OpenFiles: User cancelled the file picker.")
+            return@registerForActivityResult
+        }
+
+        for (uri in uris) {
+            if (uri.path == null)
+                continue
+            println("User picked file: $uri")
+            val fileName = uri.fileName()!!
+            val file = try {
+                this.contentResolver.openFile(uri, "r", null)
+            } catch (e: Exception) { null }
+            if (file == null) {
+                this.showToast("Couldn't open file \"$fileName\"")
+                continue
             }
-
-            // println("Calendars on device:")
-            // for (cal in userCalendars(this.baseContext)!!) {
-            //     println("\t$cal")
-            // }
+            val result = DavSyncRs().importFile(file.fd, fileName, this.baseContext.filesDir.path)
+            importChannel.trySend(when (result) {
+                is ImportFileResult.Error -> {
+                    this.showToast("Error importing file")
+                    null
+                }
+                is ImportFileResult.Success -> {
+                    // TODO: add parsed file to content provider
+                    DavSyncRs().parse_file(this.baseContext.filesDir.path, result.calName)
+                    null
+                }
+                is ImportFileResult.FileExists -> result.calName
+            })
+            file.close()
+            // TODO: also copy to sync dir
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must set navigationBarStyle to remove the scrim.
         enableEdgeToEdge(navigationBarStyle = SystemBarStyle.light(0, 0))
@@ -121,6 +171,7 @@ class MainActivity : ComponentActivity() {
                         var openAction: Actions? by rememberSaveable { mutableStateOf(null) }
                         val asyncScope = rememberCoroutineScope()
                         val snackBarState = remember { SnackbarHostState() }
+
                         MainContent(
                             navigateTo = { dest -> navController.navigate(dest.route) },
                             snackBarState = snackBarState
@@ -136,8 +187,15 @@ class MainActivity : ComponentActivity() {
                                             { openAction = Actions.NewCalendar },
                                         ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar")
                                             { openAction = Actions.CopyCalendar },
-                                        ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file")
-                                            { openAction = Actions.ImportFile },
+                                        ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file") {
+                                            asyncScope.launch {
+                                                // The ACTION_OPEN_DOCUMENT Intent takes the MIME Types of files that can be opened
+                                                importFilesIntent.launch(arrayOf("text/calendar"))
+                                                importChannel.receive()?.let { name ->
+                                                    openAction = Actions.ImportFileExists(name)
+                                                }
+                                            }
+                                        },
                                     )
                                 ),
                             ) { modifier ->
@@ -167,8 +225,10 @@ class MainActivity : ComponentActivity() {
                             is Actions.EditCalendar -> {
                                 val data = openAction as Actions.EditCalendar
                                 EditCalendarAction(
-                                    name = data.name,
+                                    title = { Text("Edit Calendar") },
                                     color = data.color,
+                                    name = data.name,
+                                    nameChecks = listOf(NameCheck.BlankCheck),
                                     close = { openAction = null },
                                     submit = { newName, newColor -> this@MainActivity.editCalendar(data.id, newName, newColor) }
                                 )
@@ -180,7 +240,6 @@ class MainActivity : ComponentActivity() {
                                 // FIXME: small lag on UI when running LaunchedEffect and asyncScope.launch
                                 LaunchedEffect(true) {
                                     this@MainActivity.asyncCalendarPermission.runWithMessage("Searching for calendars") {
-                                        kotlinx.coroutines.delay(500)
                                         this.externalUserCalendars()?.let { cals ->
                                             calendars = cals.map { cal ->
                                                 ExternalUserCalendar(cal,
@@ -198,12 +257,20 @@ class MainActivity : ComponentActivity() {
                                         close = { openAction = null },
                                         submit = { ids -> this@MainActivity.copyCalendars(ids, asyncScope) }
                                     )
-                                } else if (error) {
-                                    Toast.makeText(this@MainActivity.baseContext, "Could not query user calendars", Toast.LENGTH_SHORT).show()
-                                    openAction = null
-                                }
+                                } else if (error)
+                                    this@MainActivity.showToast("Could not query user calendars")
+                                // Close if couldn't get calendars, because of error or perm denial
+                                openAction = null
                             }
-                            Actions.ImportFile -> { /* TODO */ }
+                            is Actions.ImportFileExists -> {
+                                val data = openAction as Actions.ImportFileExists
+                                ImportFileExistsAction(
+                                    name = data.name,
+                                    rename = { newName, color -> /* TODO: */ },
+                                    overwrite = { /* TODO: */ },
+                                    close = { openAction = null }
+                                )
+                            }
                             null -> {}
                         }
                     }
@@ -342,6 +409,10 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    @Suppress("MemberVisibilityCanBePrivate")
+    fun showToast(text: String) = Toast.makeText(this.baseContext, text, Toast.LENGTH_SHORT).show()
+    fun showToast(@StringRes resId: Int) = Toast.makeText(this.baseContext, resId, Toast.LENGTH_SHORT).show()
 
     private fun selectSyncDir() {
         // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.

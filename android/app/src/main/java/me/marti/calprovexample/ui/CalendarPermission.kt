@@ -3,7 +3,6 @@ package me.marti.calprovexample.ui
 import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
-import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Row
@@ -105,9 +104,7 @@ abstract class Permission(internal val activity: MainActivity) {
             this.activity.shouldShowRequestPermissionRationale(perm)
         }
     }
-    internal fun showDeniedToast() {
-        Toast.makeText(this.activity.baseContext, R.string.cal_perm_denied, Toast.LENGTH_SHORT).show()
-    }
+    internal fun showDeniedToast() = this.activity.showToast(R.string.cal_perm_denied)
 
     /** A **Dialog** explaining why the permissions are needed.
      *
@@ -234,6 +231,7 @@ class AsyncCalendarPermission(
         else {
             if (this.shouldShowDialog()) {
                 this.dialogController = true
+                // FIXME: channel.receive() stopped working
                 // Wait for user to press Allow (true) or Deny (false)
                 val response = this.channel.receive()
                 this.dialogController = false

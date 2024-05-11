@@ -1,5 +1,6 @@
 package me.marti.calprovexample
 
+import android.net.Uri
 import androidx.compose.ui.graphics.Color as ComposeColor
 
 /** A **`List<T>`** grouped by values **`G`**, which are members of **`T`**. */
@@ -30,6 +31,24 @@ fun <T, R> List<T>.tryMap(transform: (T) -> R?): List<R>? {
     return this.map {
         transform(it) ?: return null
     }
+}
+
+/** Get the file name for an URI that is a file or directory path.
+ *
+ * Returns `NULL` if the URI is not a path. */
+fun Uri.fileName(): String? {
+    val path = this.lastPathSegment ?: return null
+    // first split the base of the path, then split the other components
+    return path.split(':', limit = 2).last().split('/').last()
+}
+
+fun fileNameWithoutExtension(fileName: String): String {
+    val split = fileName.split('.')
+    return if (split.size == 1)
+        // File name has no extensions
+        fileName
+    else
+        split.dropLast(1).joinToString(".")
 }
 
 data class Color(

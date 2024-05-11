@@ -53,6 +53,7 @@ import com.github.skydoves.colorpicker.compose.rememberColorPickerController
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.GroupedList
 import me.marti.calprovexample.calendar.ExternalUserCalendar
+import me.marti.calprovexample.ui.NameCheck.Companion.checkError
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
 const val DEFAULT_CALENDAR_COLOR = 0x68acef
@@ -63,7 +64,7 @@ sealed class Actions private constructor() {
     object NewCalendar: Actions()
     class EditCalendar(val id: Long, val name: String, val color: Color): Actions()
     object CopyCalendar: Actions()
-    object ImportFile: Actions()
+    class ImportFileExists(val name: String): Actions()
 }
 
 /** Show a dialog to **Create** the info of a new Calendar for this App.
@@ -81,10 +82,31 @@ fun NewCalendarAction(modifier: Modifier = Modifier, close: () -> Unit, submit: 
         title = { Text("Create new Calendar") },
         submitButtonContent = { Text("Create") },
         name = "",
-        color = Color(DEFAULT_CALENDAR_COLOR),
+        nameChecks = listOf(NameCheck.BlankCheck),
         close = close,
         submit = submit
     )
+}
+
+/** Struct to hold data about checking the validity of a String.
+ *
+ * @param check Determines if a String is valid.
+ * @param error A message ot display if the String is **not** valid. */
+class NameCheck(val check: (String) -> Boolean, val error: String) {
+    companion object {
+        // Some common checks
+        val BlankCheck = NameCheck({ name -> name.isNotBlank() }, "Name can't be blank")
+
+        /** Perform all the checks on the `name`. Returns [error] of the [NameCheck] that failed. */
+        fun List<NameCheck>.checkError(name: String): String? {
+            // Find the first check that fails
+            val result = this.indexOfFirst { check -> !check.check(name) }
+            return if (result >= 0)
+                this[result].error
+            else
+                null // All checks passed
+        }
+    }
 }
 
 /** Show a dialog to **Edit** the info of an existing Calendar that is owned by this App.
@@ -93,8 +115,10 @@ fun NewCalendarAction(modifier: Modifier = Modifier, close: () -> Unit, submit: 
  *
  * @param title The text of the title header of the Dialog.
  * @param submitButtonContent The text for the *submit* button.
- * @param name The initial display *name* of the Calendar being edited.
+ * @param submitButtonContent The text for the *cancel* button.
  * @param color The initial *color* of the Calendar being edited.
+ * @param name The initial display *name* of the Calendar being edited.
+ * @param nameChecks A set of checks to determine if the *new name* is valid.
  * @param close Stop showing the dialog.
  * @param submit Handle the data submitted by the user. [close] is always called before this.
  *
@@ -102,27 +126,28 @@ fun NewCalendarAction(modifier: Modifier = Modifier, close: () -> Unit, submit: 
 @Composable
 fun EditCalendarAction(
     modifier: Modifier = Modifier,
-    title: @Composable () -> Unit = { Text("Edit Calendar") },
     submitButtonContent: @Composable RowScope.() -> Unit = { Text("Save") },
+    cancelButtonContent: @Composable RowScope.() -> Unit = { Text("Cancel") },
+    color: Color = Color(DEFAULT_CALENDAR_COLOR),
+    title: @Composable () -> Unit,
     name: String,
-    color: Color,
+    nameChecks: List<NameCheck>,
     close: () -> Unit,
     submit: (String, Color) -> Unit
 ) {
-    // The name of the Calendar. Is the string argument of the `submit` function
+    // The new name of the Calendar. Is the string argument of the `submit` function
     @Suppress("NAME_SHADOWING")
     var name by rememberSaveable { mutableStateOf(name) }
-    // Whether the error message should be shown and the submit button disabled
-    var nameError by remember { mutableStateOf(false) }
-    fun nameIsValid(): Boolean = name.isNotBlank()
+    // The error message to display. Disables the Submit button. Null if there is no error.
+    var nameError: String? by remember { mutableStateOf(null) }
     @Suppress("NAME_SHADOWING")
     var color by rememberSaveable { mutableIntStateOf(color.toColor().toArgb()) }
     // Whether to show ColorPicker or the Edit dialog
     var pickColor by rememberSaveable { mutableStateOf(false) }
     // Does all the checks before calling `submit`
     val onSubmit = {
-        nameError = !nameIsValid()
-        if (nameIsValid()) {
+        nameError = nameChecks.checkError(name)
+        if (nameError != null) {
             close()
             submit(name, Color(color))
         }
@@ -139,10 +164,10 @@ fun EditCalendarAction(
             title = title,
             onDismissRequest = close,
             dismissButton = {
-                TextButton(onClick = close) { Text("Cancel") }
+                TextButton(onClick = close, content = cancelButtonContent)
             },
             confirmButton = {
-                FilledTonalButton(onClick = onSubmit, enabled = !nameError, content = submitButtonContent)
+                FilledTonalButton(onClick = onSubmit, enabled = nameError == null, content = submitButtonContent)
             },
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -158,14 +183,12 @@ fun EditCalendarAction(
                     TextField(
                         value = name,
                         label = { Text("Name") },
-                        isError = nameError,
-                        supportingText = if (nameError) {{
-                            Text("Name can't be blank")
-                        }} else null,
+                        isError = nameError != null,
+                        supportingText = nameError?.let { error -> { Text(error) } },
                         singleLine = true,
                         onValueChange = {
                             text -> name = text
-                            nameError = !nameIsValid()
+                            nameError = nameChecks.checkError(text)
                         }
                     )
                 }
@@ -303,6 +326,59 @@ private fun Calendar(modifier: Modifier = Modifier, color: Color, name: String, 
     }
 }
 
+/** A dialog that prompts the user whether to **rename** a calendar being imported,
+ * or **overwrite** the existing calendar when there is an import conflict.
+ *
+ * @param name The name of the calendar that was attempted import.
+ * @param rename The user decided to assign the import a different name. Import the file with that name.
+ * @param overwrite The user decided to remove the existing calendar and import the new one. */
+@Composable
+fun ImportFileExistsAction(
+    modifier: Modifier = Modifier,
+    name: String,
+    rename: (String, Color) -> Unit,
+    overwrite: () -> Unit,
+    close: () -> Unit
+) {
+    var isRename by remember { mutableStateOf(false) }
+
+    if (isRename) {
+        EditCalendarAction(
+            title = { Text("Rename import") },
+            submitButtonContent = { Text("Rename") },
+            cancelButtonContent = { Text("Back") },
+            name = name,
+            nameChecks = listOf(
+                NameCheck.BlankCheck,
+                NameCheck({ new -> new != name }, "Name must be different")
+            ),
+            close = { isRename = false },
+            submit = { newName, color ->
+                close()
+                rename(newName, color)
+            },
+        )
+    } else { // Initial dialog
+        AlertDialog(
+            modifier = modifier,
+            onDismissRequest = close,
+            text = { Text("A calendar already exists with the name \"$name\". Rename imported calendar?") },
+            confirmButton = {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = close) { Text("Cancel") }
+                    Row {
+                        TextButton(onClick = { isRename = true }) { Text("Rename") }
+                        TextButton(onClick = {
+                            close()
+                            overwrite()
+                        }) { Text("Overwrite") }
+                    }
+                }
+            },
+        )
+    }
+}
+
 @Composable
 private fun ColorPickerDialog(
     modifier: Modifier = Modifier,
@@ -432,6 +508,17 @@ private fun CopyCalendarPreview() {
                 )
             ).groupBy { cal -> cal.accountName },
             close = {}, submit = {}
+        )
+    }
+}
+@Preview
+@Composable
+private fun ImportFilePreview() {
+    CalProvExampleTheme {
+        ImportFileExistsAction(
+            name = "MyCalendar",
+            rename = { _, _ -> }, overwrite = {},
+            close = {}
         )
     }
 }
