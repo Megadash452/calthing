@@ -43,7 +43,6 @@ import kotlinx.coroutines.launch
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.DavSyncRs
-import me.marti.calprovexample.GroupedList
 import me.marti.calprovexample.ImportFileResult
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.PreferenceKey
@@ -52,6 +51,7 @@ import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.calendar.AllData
 import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.calendar.InternalUserCalendar
+import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.calendar.copyFromDevice
 import me.marti.calprovexample.calendar.deleteCalendar
 import me.marti.calprovexample.calendar.editCalendar
@@ -235,32 +235,33 @@ class MainActivity : ComponentActivity() {
                             }
                             Actions.CopyCalendar -> {
                                 // Get the Calendars in the device the user can copy
-                                var calendars by remember { mutableStateOf<GroupedList<String, ExternalUserCalendar>?>(null) }
-                                var error by remember { mutableStateOf(false) }
+                                var calendars by remember { mutableStateOf< List<UserCalendarListItem>?>(null) }
                                 // FIXME: small lag on UI when running LaunchedEffect and asyncScope.launch
                                 LaunchedEffect(true) {
                                     this@MainActivity.asyncCalendarPermission.runWithMessage("Searching for calendars") {
-                                        this.externalUserCalendars()?.let { cals ->
-                                            calendars = cals.map { cal ->
-                                                ExternalUserCalendar(cal,
-                                                    // Find the calendar owned by this app (internal) that copied this calendar's data (if any).
-                                                    userCalendars.value?.find { iCal -> cal.id == iCal.importedFrom }?.name
-                                                )
-                                            }.groupBy { cal -> cal.accountName }
-                                        } ?: run { error = true }
+                                        calendars = this.externalUserCalendars()
+                                        if (calendars == null) {
+                                            this@MainActivity.showToast("Could not query user calendars")
+                                            openAction = null
+                                        }
+                                    } ?: run {
+                                        // Close if couldn't get calendars, because of error or perm denial
+                                        openAction = null
                                     }
                                 }
 
-                                if (calendars != null) {
+                                calendars?.let { cals ->
                                     CopyCalendarAction(
-                                        calendars = calendars!!,
+                                        calendars = cals.map { cal ->
+                                            ExternalUserCalendar(cal,
+                                                // Find the calendar owned by this app (internal) that copied this calendar's data (if any).
+                                                userCalendars.value?.find { iCal -> cal.id == iCal.importedFrom }?.name
+                                            )
+                                        }.groupBy { cal -> cal.accountName },
                                         close = { openAction = null },
                                         submit = { ids -> this@MainActivity.copyCalendars(ids, asyncScope) }
                                     )
-                                } else if (error)
-                                    this@MainActivity.showToast("Could not query user calendars")
-                                // Close if couldn't get calendars, because of error or perm denial
-                                openAction = null
+                                }
                             }
                             is Actions.ImportFileExists -> {
                                 val data = openAction as Actions.ImportFileExists

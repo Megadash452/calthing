@@ -224,14 +224,15 @@ class AsyncCalendarPermission(
     }
 
     /** Run a function that requires *Calendar Permissions* asynchronously, using Kotlin's *Coroutines*,
-     * waiting for the action to finish running and returning its return value (`T`).  */
+     * waiting for the action to finish running and returning its return value (`T`).
+     *
+     * @return **`NULL`** if permissions were not granted. */
     suspend fun <T> run(action: suspend CalendarPermissionScope.() -> T): T? {
         return if (this.hasPermission())
             action(this.dsl)
         else {
             if (this.shouldShowDialog()) {
                 this.dialogController = true
-                // FIXME: channel.receive() stopped working
                 // Wait for user to press Allow (true) or Deny (false)
                 val response = this.channel.receive()
                 this.dialogController = false
