@@ -1,6 +1,12 @@
 package me.marti.calprovexample
 
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.net.toUri
+import java.net.URLEncoder
 import androidx.compose.ui.graphics.Color as ComposeColor
 
 /** A **`List<T>`** grouped by values **`G`**, which are members of **`T`**. */
@@ -40,6 +46,16 @@ fun Uri.fileName(): String? {
     val path = this.lastPathSegment ?: return null
     // first split the base of the path, then split the other components
     return path.split(':', limit = 2).last().split('/').last()
+}
+/** Append *[path] segments* to the end of the Uri path.
+ *
+ * Returns `NULL` if the URI is not a path. */
+fun Uri.join(path: String): Uri? {
+    if (this.lastPathSegment == null)
+        return null
+    // Prevent adding a second slash to the join point of the paths
+    val slash = if (this.lastPathSegment!!.last() == '/') "" else "/"
+    return "${this}${URLEncoder.encode("$slash$path", "utf-8")}".toUri()
 }
 
 fun fileNameWithoutExtension(fileName: String): String {
@@ -125,3 +141,12 @@ fun Color(i: Int): Color {
 fun Color(color: androidx.compose.ui.graphics.Color): Color {
     return Color(color.value.toInt())
 }
+
+// /** Extend class to add  */
+// class OpenDirectory: ActivityResultContracts.OpenDocumentTree() {
+//     override fun createIntent(context: Context, input: Uri?): Intent {
+//         val intent = super.createIntent(context, input)
+//         intent.putExtra(Intent.EXTRA)
+//         return intent
+//     }
+// }

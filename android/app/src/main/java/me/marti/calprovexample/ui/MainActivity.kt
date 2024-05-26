@@ -2,8 +2,10 @@ package me.marti.calprovexample.ui
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -33,7 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -48,6 +49,7 @@ import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.PreferenceKey
 import me.marti.calprovexample.R
 import me.marti.calprovexample.StringLikeUserPreference
+import me.marti.calprovexample.UserPreference
 import me.marti.calprovexample.calendar.AllData
 import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.calendar.InternalUserCalendar
@@ -56,12 +58,16 @@ import me.marti.calprovexample.calendar.copyFromDevice
 import me.marti.calprovexample.calendar.deleteCalendar
 import me.marti.calprovexample.calendar.editCalendar
 import me.marti.calprovexample.calendar.externalUserCalendars
+import me.marti.calprovexample.calendar.getData
 import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
 import me.marti.calprovexample.calendar.toggleSync
-import me.marti.calprovexample.getAppPreferences
-import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.fileName
+import me.marti.calprovexample.getAppPreferences
+import me.marti.calprovexample.join
+import me.marti.calprovexample.ui.theme.CalProvExampleTheme
+
+const val CALENDAR_DOCUMENT_MIME_TYPE = "text/calendar"
 
 class MainActivity : ComponentActivity() {
     private val calendarPermission = CalendarPermission(this)
@@ -69,8 +75,11 @@ class MainActivity : ComponentActivity() {
 
     // -- Hoisted States for compose
     /** The path/URI where the synced .ics files are stored in shared storage.
-      * Null if the user hasn't selected a directory. */
-    private val syncDir = StringLikeUserPreference(PreferenceKey.SYNC_DIR_URI) { uri -> uri.toUri() }
+      * Null if the user hasn't selected a directory.
+     *
+     * This URI can be used by the [Documents Content Provider][android.provider.DocumentsProvider]
+     * by using the [DocumentsContract]. */
+    private val syncDir: UserPreference<Uri> = StringLikeUserPreference(PreferenceKey.SYNC_DIR_URI) { uri -> uri.toUri() }
     /** Calendars are grouped by Account Name.
      * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device).
      *
@@ -78,28 +87,37 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("MutableCollectionMutableState")
     private var userCalendars: MutableState<SnapshotStateList<InternalUserCalendar>?> = mutableStateOf(null)
 
+    /** Channel for sending messages between *[dirSelectIntent]* and the UI.
+     *  true if the user selected the directory.
+     *  false if the user canceled. */
+    private val dirSelectChannel = Channel<Boolean>()
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) {
             println("OpenDir: User cancelled the file picker.")
+            dirSelectChannel.trySend(false)
             return@registerForActivityResult
         }
-        println("User selected $uri for synced .ics files.")
-        this.syncDir.value = uri
         // Preserve access to the directory. Otherwise, access would be revoked when app is closed.
         contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        @Suppress("NAME_SHADOWING")
+        // Convert Tree URI to an URI that can be used by the DocumentsProvider
+        val uri = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
 
-        // TODO: use DocumentContract instead (performance)
-        val dir = DocumentFile.fromTreeUri(this.baseContext, uri)!!
-        println("Files in ${uri.path}:")
-        for (file in dir.listFiles()) {
-            println("\t${file.name}")
+        val file = try {
+            this.contentResolver.openFileDescriptor(uri, "r")
+        } catch (e: Exception) { null }
+        if (file == null) {
+            this.showToast("Couldn't open file \"$uri\"")
+            return@registerForActivityResult
         }
+        DavSyncRs.initialize_sync_dir(file.fd)
+        file.close()
 
-        // println("Calendars on device:")
-        // for (cal in userCalendars(this.baseContext)!!) {
-        //     println("\t$cal")
-        // }
+        this.syncDir.value = uri
+        dirSelectChannel.trySend(true)
+        println("User selected $uri for synced .ics files.")
+        // If nothing works, recheck DocumentsContract and DocumentFile
     }
     /** Channel for sending messages between *[importFilesIntent] handler* and the UI.
      *
@@ -108,6 +126,7 @@ class MainActivity : ComponentActivity() {
     private val importChannel = Channel<String?>()
     /** Register for file picker intent. */
     @RequiresApi(Build.VERSION_CODES.Q)
+    // TODO: Use ActivityResultContracts.GetContent instead
     private val importFilesIntent = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) {
             println("OpenFiles: User cancelled the file picker.")
@@ -126,21 +145,36 @@ class MainActivity : ComponentActivity() {
                 this.showToast("Couldn't open file \"$fileName\"")
                 continue
             }
-            val result = DavSyncRs().importFile(file.fd, fileName, this.baseContext.filesDir.path)
+            val result: ImportFileResult = DavSyncRs.importFile(file.fd, fileName, "${this.filesDir.path}/calendars/")
             importChannel.trySend(when (result) {
                 is ImportFileResult.Error -> {
                     this.showToast("Error importing file")
                     null
                 }
+                is ImportFileResult.FileExists -> result.calName
                 is ImportFileResult.Success -> {
+                    println("ImportFileResult.Success")
+                    // COPY the calendar file to the App's sync directory in shared storage
+                    this.syncDir.value?.let { syncDir ->
+                        println("Copying \"$uri\" to \"${syncDir}/calendars/$fileName\"")
+                        val copyTo = DocumentsContract.createDocument(this.contentResolver, syncDir, CALENDAR_DOCUMENT_MIME_TYPE, fileName)
+                        if (copyTo != null) {
+                            DocumentsContract.copyDocument(this.contentResolver, uri, copyTo)
+                                ?: this@MainActivity.showToast("Error copying picked file to shared storage")
+                        } else {
+                            this.showToast("Error creating calendar file in shared storage")
+                            null
+                        }
+                    } ?: run {
+                        Log.e("importFiles", "'syncDir' is NULL")
+                        this.showToast("FIX: 'syncDir' is NULL in importFilesIntent")
+                    }
                     // TODO: add parsed file to content provider
-                    DavSyncRs().parse_file(this.baseContext.filesDir.path, result.calName)
+                    // DavSyncRs.parse_file(this.baseContext.filesDir.path, result.calName)
                     null
                 }
-                is ImportFileResult.FileExists -> result.calName
             })
             file.close()
-            // TODO: also copy to sync dir
         }
     }
 
@@ -167,7 +201,7 @@ class MainActivity : ComponentActivity() {
 
                 NavHost(navController, startDestination = NavDestination.Main.route) {
                     this.composable(NavDestination.Main.route) {
-                        // Open a secondary item in this screen, such as the FAB or a dialog
+                        /** Open a secondary item in this screen, such as the FAB or a dialog */
                         var openAction: Actions? by rememberSaveable { mutableStateOf(null) }
                         val asyncScope = rememberCoroutineScope()
                         val snackBarState = remember { SnackbarHostState() }
@@ -189,8 +223,26 @@ class MainActivity : ComponentActivity() {
                                             { openAction = Actions.CopyCalendar },
                                         ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file") {
                                             asyncScope.launch {
+                                                // Select synDir before importing because it will be expected to Not be NULL.
+                                                if (syncDir.value == null) {
+                                                    // Tell the user they will select syncDir
+                                                    if (!AsyncDialog.show("Select sync directory")) {
+                                                        this@MainActivity.showToast("Import canceled")
+                                                        return@launch
+                                                    }
+                                                    dirSelectChannel.tryReceive() // clear channel
+                                                    this@MainActivity.selectSyncDir()
+                                                    if (!dirSelectChannel.receive()) {
+                                                        // Cancel the import if the user canceled selecting the directory
+                                                        this@MainActivity.showToast("Import canceled")
+                                                        return@launch
+                                                    }
+                                                    // Tell the user they will select the file to import
+                                                    AsyncDialog.showNoCancel("Select file to import")
+                                                }
+                                                importChannel.tryReceive() // clear channel
                                                 // The ACTION_OPEN_DOCUMENT Intent takes the MIME Types of files that can be opened
-                                                importFilesIntent.launch(arrayOf("text/calendar"))
+                                                importFilesIntent.launch(arrayOf(CALENDAR_DOCUMENT_MIME_TYPE))
                                                 importChannel.receive()?.let { name ->
                                                     openAction = Actions.ImportFileExists(name)
                                                 }
@@ -235,7 +287,7 @@ class MainActivity : ComponentActivity() {
                             }
                             Actions.CopyCalendar -> {
                                 // Get the Calendars in the device the user can copy
-                                var calendars by remember { mutableStateOf< List<UserCalendarListItem>?>(null) }
+                                var calendars by remember { mutableStateOf<List<UserCalendarListItem>?>(null) }
                                 // FIXME: small lag on UI when running LaunchedEffect and asyncScope.launch
                                 LaunchedEffect(true) {
                                     this@MainActivity.asyncCalendarPermission.runWithMessage("Searching for calendars") {
@@ -304,6 +356,7 @@ class MainActivity : ComponentActivity() {
                 this.calendarPermission.RationaleDialog()
                 this.asyncCalendarPermission.RationaleDialog()
                 this.asyncCalendarPermission.SuspendDialog()
+                AsyncDialog.Dialog()
             }
         }
     }
@@ -392,8 +445,21 @@ class MainActivity : ComponentActivity() {
                         calendars.add(calendar)
                 }
                 // Only really delete calendar after notif is dismissed.
-                SnackbarResult.Dismissed -> this@MainActivity.asyncCalendarPermission.run {
-                    this.deleteCalendar(id)
+                SnackbarResult.Dismissed -> {
+                    this@MainActivity.asyncCalendarPermission.run {
+                        this.getData(id)?.let { data ->
+                            val fileName = "${data.name}.ics"
+                            // Delete from App's internal storage
+                            java.io.File("${this@MainActivity.filesDir.path}/calendars/$fileName")
+                            // Delete from syncDir in shared storage
+                            this@MainActivity.syncDir.value?.let { syncDir ->
+                                DocumentsContract.deleteDocument(this@MainActivity.contentResolver, syncDir.join("calendars/$fileName")!!)
+                            }
+                            // Delete from Calendar ContentProvider
+                            this.deleteCalendar(id)
+                        } ?:
+                            this@MainActivity.showToast("Couldn't find calendar with ID $id")
+                    }
                 }
             }
         }
@@ -414,6 +480,13 @@ class MainActivity : ComponentActivity() {
     @Suppress("MemberVisibilityCanBePrivate")
     fun showToast(text: String) = Toast.makeText(this.baseContext, text, Toast.LENGTH_SHORT).show()
     fun showToast(@StringRes resId: Int) = Toast.makeText(this.baseContext, resId, Toast.LENGTH_SHORT).show()
+
+    /** Copy a file from the App's internal directory to user-picked [syncDir], retaining the same *file name*.
+     * @param path Path of the file to be copied, relative to the App's [filesDir][android.content.Context.getFilesDir].
+     * @param destDir Path of **directory** where the file will be copied to. */
+    fun copyToSyncDir(path: String, destDir: String) {
+
+    }
 
     private fun selectSyncDir() {
         // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.

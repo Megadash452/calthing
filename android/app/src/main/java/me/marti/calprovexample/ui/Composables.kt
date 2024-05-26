@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -67,6 +68,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
@@ -102,6 +104,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.consume
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.R
 import me.marti.calprovexample.calendar.InternalUserCalendar
@@ -499,16 +503,21 @@ private fun ExpandableFloatingActionButtons(
                 ActionLabel(action.label, modifier = Modifier
                     // All offsets must be negative because offset direction is from Bottom Left
                     .offset(x = -FAB_SIZE - LABEL_SPACING)
-                    .offset { IntOffset(
-                        x = 0, y = (-fabYOffset() - (SMALL_FAB_SIZE - textHeight) / 2).roundToPx()
-                    )
-                })
+                    .offset {
+                        IntOffset(
+                            x = 0,
+                            y = (-fabYOffset() - (SMALL_FAB_SIZE - textHeight) / 2).roundToPx()
+                        )
+                    })
                 SmallFloatingActionButton(
                     modifier = Modifier
                         .size(SMALL_FAB_SIZE)
-                        .offset { IntOffset(
-                            x = (-(FAB_SIZE - SMALL_FAB_SIZE) / 2).roundToPx(), y = -fabYOffset().roundToPx()
-                        ) }
+                        .offset {
+                            IntOffset(
+                                x = (-(FAB_SIZE - SMALL_FAB_SIZE) / 2).roundToPx(),
+                                y = -fabYOffset().roundToPx()
+                            )
+                        }
                         .graphicsLayer {
                             // Set the origin of scaling to the bottom-center
                             this.transformOrigin = TransformOrigin(0.5f, 1.0f)
@@ -570,13 +579,14 @@ private fun ExpandableFloatingActionButtons(
 @Composable
 private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded: Boolean, collapse: () -> Unit) {
     AnimatedVisibility(modifier = modifier, visible = expanded, enter = fadeIn(), exit = fadeOut(), label = "Backdrop Visibility") {
-        Box(Modifier
-            .fillMaxSize()
-            // .background(Color(0xc3000000))
-            // Weird flash glitch during expanding fade animation (only noticeable in dark mode)
-            // Seems to only be caused by MaterialTheme.colorScheme.background and surface
-            .background(MaterialTheme.colorScheme.surfaceDim.copy(alpha = 0.88f)) // 0xe1000000
-            .clickable(onClick = collapse)
+        Box(
+            Modifier
+                .fillMaxSize()
+                // .background(Color(0xc3000000))
+                // Weird flash glitch during expanding fade animation (only noticeable in dark mode)
+                // Seems to only be caused by MaterialTheme.colorScheme.background and surface
+                .background(MaterialTheme.colorScheme.surfaceDim.copy(alpha = 0.88f)) // 0xe1000000
+                .clickable(onClick = collapse)
         )
     }
 }
@@ -836,6 +846,61 @@ fun PlainTooltipBox(modifier: Modifier = Modifier, enabled: Boolean = true, tool
         tooltip = { this.PlainTooltip(content = tooltipContent) },
         content = content
     )
+}
+
+/** A dialog with *Cancel/Confirm* buttons that can be shown while waiting for a response from the user. */
+object AsyncDialog {
+    /** Show a dialog with a message and wait for a response.
+     * @return **`true`** when user clicks *Ok*, and **`false`** when user dismisses dialog. */
+    suspend fun show(msg: String): Boolean {
+        this.channel.tryReceive() // clear channel
+        this.components = Components(msg, true)
+        return this.channel.receive()
+    }
+
+    /** Like [show], but will not allow the user to *Cancel* the dialog and will only show the *Ok* button. */
+    suspend fun showNoCancel(msg: String) {
+        this.channel.tryReceive() // clear channel
+        this.components = Components(msg, false)
+        this.channel.receive()
+    }
+
+    private class Components(
+        /** The text body of the dialog. */
+        val message: String,
+        /** Whether the dialog can be canceled, or will it only show an Ok button. */
+        val cancel: Boolean
+    )
+
+    /** Send message from [Dialog] to the suspend function [show].
+     *  Sends **`true`** when user clicks *Ok*.
+     *  Sends **`false`** when user clicks *Cancel* or outside the dialog. */
+    private val channel = Channel<Boolean>()
+    /** Shows the dialog when is **not `NULL`** with the message as the body of the dialog. */
+    private var components by mutableStateOf<Components?>(null)
+
+    @Composable
+    fun Dialog() {
+        this.components?.let { comp ->
+            val cancel = {
+                this.channel.trySend(false)
+                this.components = null
+            }
+            AlertDialog(
+                confirmButton = { TextButton(onClick = {
+                    this.channel.trySend(true)
+                    this.components = null
+                }) { Text(text = "Ok") } },
+                dismissButton = if (comp.cancel) { {
+                    TextButton(onClick = cancel) {
+                        Text(text = "Cancel")
+                    }
+                } } else null,
+                onDismissRequest = if (comp.cancel) cancel else { {} },
+                text = { Text(comp.message) }
+            )
+        }
+    }
 }
 
 @Preview(showBackground = true, widthDp = PREVIEW_WIDTH)

@@ -5,19 +5,19 @@ import android.util.Log
 /** Rust functions that can be called from Java.
  * All the extern functions declared in this class are defined in `project root/rust/src/lib.rs` */
 @Suppress("FunctionName")
-class DavSyncRs {
-    companion object {
-        init {
-            System.loadLibrary("davsync")
-        }
+object DavSyncRs {
+    init {
+        System.loadLibrary("davsync")
     }
+
+    external fun initialize_sync_dir(fd: Int)
 
     private external fun import_file(fd: Int, fileName: String, appDir: String): Byte
     fun importFile(fd: Int, fileName: String, appDir: String): ImportFileResult {
         val calName = fileNameWithoutExtension(fileName)
 
         when (try {
-            DavSyncRs().import_file(fd, fileName, appDir).toInt()
+            this.import_file(fd, fileName, appDir).toInt()
         } catch(e: Exception) {
             Log.e(null, "Error importing file. Thrown exception:")
             Log.e(null, "$e")

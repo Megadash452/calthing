@@ -11,6 +11,7 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 davsync = { path = "/home/marti/source/davsync" }
+libc = "0.2.155"
 
 # used in build.rs script
 [build-dependencies]

@@ -2,6 +2,7 @@ package me.marti.calprovexample.calendar
 
 import android.content.ContentUris
 import android.content.ContentValues
+import android.database.Cursor
 import android.provider.CalendarContract
 import android.util.Log
 import androidx.compose.ui.graphics.toArgb
@@ -64,6 +65,17 @@ class InternalUserCalendar(
     constructor(parent: UserCalendarListItem, sync: Boolean, importedFrom: Long?)
             : this(parent.id, parent.name, parent.accountName, parent.color, sync, importedFrom)
 
+    /** Get the data of a calendar by reading it from a cursor. */
+    constructor(cur: Cursor): this(
+        id = cur.getLong(DisplayCalendarProjection.ID.ordinal),
+        name = cur.getString(DisplayCalendarProjection.DISPLAY_NAME.ordinal),
+        accountName = cur.getString(DisplayCalendarProjection.ACCOUNT_NAME.ordinal),
+        // The stored color is a 32bit ARGB, but the alpha is ignored.
+        color = Color(cur.getInt(DisplayCalendarProjection.COLOR.ordinal)),
+        sync = cur.getInt(DisplayCalendarProjection.SYNC.ordinal) != 0,
+        importedFrom = cur.getLongOrNull(DisplayCalendarProjection.IMPORTED_FROM.ordinal),
+    )
+
     /** Create a copy of a Calendar object to edit some of its fields. */
     fun copy(id: Long? = null, name: String? = null, accountName: String? = null, color: Color? = null, sync: Boolean? = null, importedFrom: Long? = null): InternalUserCalendar {
         return InternalUserCalendar(
@@ -119,17 +131,21 @@ fun CalendarPermissionScope.internalUserCalendars(): List<InternalUserCalendar>?
 
     val result = List(cur.count) {
         cur.moveToNext()
-        InternalUserCalendar(
-            id = cur.getLong(DisplayCalendarProjection.ID.ordinal),
-            name = cur.getString(DisplayCalendarProjection.DISPLAY_NAME.ordinal),
-            accountName = cur.getString(DisplayCalendarProjection.ACCOUNT_NAME.ordinal),
-            // The stored color is a 32bit ARGB, but the alpha is ignored.
-            color = Color(cur.getInt(DisplayCalendarProjection.COLOR.ordinal)),
-            sync = cur.getInt(DisplayCalendarProjection.SYNC.ordinal) != 0,
-            importedFrom = cur.getLongOrNull(DisplayCalendarProjection.IMPORTED_FROM.ordinal),
-        )
+        InternalUserCalendar(cur)
     }
 
+    cur.close()
+    return result
+}
+
+/** Get data about a Calendar owned by this app. */
+fun CalendarPermissionScope.getData(id: Long): InternalUserCalendar? {
+    val cur = this.context.getCursor<DisplayCalendarProjection>(
+        CalendarContract.Calendars.CONTENT_URI.withId(id)
+    ) ?: return null
+
+    cur.moveToNext()
+    val result = InternalUserCalendar(cur)
     cur.close()
     return result
 }

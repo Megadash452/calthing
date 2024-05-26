@@ -1,4 +1,4 @@
-use jni::{JNIEnv, objects::{JObject, JValue}};
+use jni::{JNIEnv, objects::{JObject, JValue, JString}};
 
 #[allow(dead_code)]
 /// Print a **message** to the Android logger.
@@ -25,4 +25,21 @@ pub fn eprintln(env: &mut JNIEnv, s: &str) {
         JValue::Object(&JObject::from(env.new_string("Rust").unwrap())),
         JValue::Object(&JObject::from(env.new_string(s).unwrap()))
     ]).expect("Could not call static function Log.i()");
+}
+
+#[allow(dead_code)]
+/// Get a [`String`] from a native function argument.
+/// 
+/// Only use this if the argument declared on the Java side has the form of `String`.
+pub fn get_string(env: &JNIEnv, arg: JString) -> String {
+    String::from(unsafe { env.get_string_unchecked(&arg).expect("String argument can't be NULL") })
+}
+#[allow(dead_code)]
+/// Get a nullable [`String`] from a native function argument.
+/// 
+/// Only use this if the arugment declared on the Java side has the form of `String` or `String?`.
+pub fn get_nullable_string(env: &JNIEnv, arg: JString) -> Option<String> {
+    unsafe { env.get_string_unchecked(&arg) }
+        .ok()
+        .map(|s| String::from(s))
 }
