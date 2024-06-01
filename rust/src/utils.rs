@@ -1,11 +1,25 @@
 use jni::{JNIEnv, objects::{JObject, JValue, JString}};
 
+#[macro_export]
+macro_rules! println {
+    ($env:expr, $($arg:tt)*) => {
+        $crate::utils::_println($env, format!($($arg)*))
+    };
+}
+#[macro_export]
+macro_rules! eprintln {
+    ($env:expr, $($arg:tt)*) => {
+        $crate::utils::_eprintln($env, format!($($arg)*))
+    };
+}
+
 #[allow(dead_code)]
+#[doc(hidden)]
 /// Print a **message** to the Android logger.
 /// 
 /// Android ignores the `STDOUT` and `STDERR` files and uses some other Log system that is unknown to me atm,
 /// so to get any message error or debug message at runtime the native code would need to call the Log methods.
-pub fn println(env: &mut JNIEnv, s: &str) {
+pub fn _println(env: &mut JNIEnv, s: String) {
     let class = env.find_class("android/util/Log")
         .expect("Can't find class Log");
     env.call_static_method(class, "i", "(Ljava/lang/String;Ljava/lang/String;)I", &[
@@ -14,11 +28,12 @@ pub fn println(env: &mut JNIEnv, s: &str) {
     ]).expect("Could not call static function Log.i()");
 }
 #[allow(dead_code)]
+#[doc(hidden)]
 /// Print an **error** to the Android logger.
 /// 
 /// Android ignores the `STDOUT` and `STDERR` files and uses some other Log system that is unknown to me atm,
 /// so to get any message error or debug message at runtime the native code would need to call the Log methods.
-pub fn eprintln(env: &mut JNIEnv, s: &str) {
+pub fn _eprintln(env: &mut JNIEnv, s: String) {
     let class = env.find_class("android/util/Log")
         .expect("Can't find class Log");
     env.call_static_method(class, "i", "(Ljava/lang/String;Ljava/lang/String;)I", &[

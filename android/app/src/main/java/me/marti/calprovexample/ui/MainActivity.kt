@@ -65,6 +65,7 @@ import me.marti.calprovexample.calendar.toggleSync
 import me.marti.calprovexample.fileName
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.join
+import me.marti.calprovexample.openFd
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
 const val CALENDAR_DOCUMENT_MIME_TYPE = "text/calendar"
@@ -104,11 +105,8 @@ class MainActivity : ComponentActivity() {
         // Convert Tree URI to an URI that can be used by the DocumentsProvider
         val uri = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
 
-        val file = try {
-            this.contentResolver.openFileDescriptor(uri, "r")
-        } catch (e: Exception) { null }
-        if (file == null) {
-            this.showToast("Couldn't open file \"$uri\"")
+        val file = this.openFd(uri) ?: run {
+            dirSelectChannel.trySend(false)
             return@registerForActivityResult
         }
         DavSyncRs.initialize_sync_dir(file.fd)
@@ -480,6 +478,11 @@ class MainActivity : ComponentActivity() {
     @Suppress("MemberVisibilityCanBePrivate")
     fun showToast(text: String) = Toast.makeText(this.baseContext, text, Toast.LENGTH_SHORT).show()
     fun showToast(@StringRes resId: Int) = Toast.makeText(this.baseContext, resId, Toast.LENGTH_SHORT).show()
+    /** Shows a toast and logs an error. */
+    fun showError(text: String) {
+        this.showToast(text)
+        Log.e("Error Toast", text)
+    }
 
     /** Copy a file from the App's internal directory to user-picked [syncDir], retaining the same *file name*.
      * @param path Path of the file to be copied, relative to the App's [filesDir][android.content.Context.getFilesDir].
@@ -490,6 +493,6 @@ class MainActivity : ComponentActivity() {
 
     private fun selectSyncDir() {
         // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
-        dirSelectIntent.launch(null)
+        this.dirSelectIntent.launch(null)
     }
 }

@@ -1,11 +1,16 @@
 package me.marti.calprovexample
 
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
+import androidx.core.database.getStringOrNull
 import androidx.core.net.toUri
+import me.marti.calprovexample.ui.MainActivity
 import java.net.URLEncoder
 import androidx.compose.ui.graphics.Color as ComposeColor
 
@@ -142,11 +147,16 @@ fun Color(color: androidx.compose.ui.graphics.Color): Color {
     return Color(color.value.toInt())
 }
 
-// /** Extend class to add  */
-// class OpenDirectory: ActivityResultContracts.OpenDocumentTree() {
-//     override fun createIntent(context: Context, input: Uri?): Intent {
-//         val intent = super.createIntent(context, input)
-//         intent.putExtra(Intent.EXTRA)
-//         return intent
-//     }
-// }
+/** Get a file descriptor for a file from the ContentProvider */
+fun MainActivity.openFd(uri: Uri): android.os.ParcelFileDescriptor? {
+    val file = try {
+        this.contentResolver.openFileDescriptor(uri, "r")
+    } catch (e: Exception) { null }
+
+    if (file == null) {
+        this.showError("Couldn't open file descriptor for \"$uri\"")
+        return null
+    }
+
+    return file
+}

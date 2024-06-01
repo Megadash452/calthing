@@ -8,10 +8,10 @@ use fs::*;
 
 use std::{collections::HashMap, fs::File, io::ErrorKind, path::PathBuf};
 use jni::{
-    objects::{JClass, JString}, sys::jobject, JNIEnv
+    objects::{JClass, JString}, JNIEnv
 };
 
-const NULL: jobject = std::ptr::null_mut();
+// const NULL: jobject = std::ptr::null_mut();
 /// These are the names of the directories where synced data will be stored
 const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
 
@@ -28,6 +28,8 @@ const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
 
 #[no_mangle]
 pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_initialize_1sync_1dir<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, dir_fd: i32) {
+    // FIXME: for some reason, on my phone, libc::readdir() only returns directories (excluding . and ..), while on emulator it returns all files....
+    // FIXME: Also, libc::seekdir does not work at all in the emulator. was using read
     match initialize_sync_dir(dir_fd) {
         Ok(v) => v,
         Err(error) => env.throw(error).unwrap()
@@ -35,9 +37,8 @@ pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_initialize_1sync_1
 }
 
 fn initialize_sync_dir(dir_fd: i32) -> Result<(), String> {
-    // The fd must be duped because it is owned by ParcelFileDescriptor in the Java side.
-    let dir = DirRef::new_unowned(dir_fd)
-        .map_err(|error| format!("Error opening directory: {error}"))?;
+    let path = fdpath(dir_fd)
+        .map_err(|error| format!("Error getting path for fd: {error}"))?;
 
     // Tells which entries from DIRECTORIES already exist in this directory.
     let mut dirs_exist = DIRECTORIES
@@ -45,13 +46,14 @@ fn initialize_sync_dir(dir_fd: i32) -> Result<(), String> {
         .map(|&dir| (dir, false))
         .collect::<HashMap<&'static str, bool>>();
 
-    for entry in dir.read_entries()
+    for entry in std::fs::read_dir(&path)
         .map_err(|error| format!("Error opening directory: {error}"))?
     {
         let entry = entry
             .map_err(|error| format!("Error reading entry: {error}"))?;
 
-        let name = match entry.name() {
+        let name = entry.file_name();
+        let name = match name.to_str() {
             Some(name) => name,
             // Ignore entry if name is not a valid str
             None => continue
@@ -67,8 +69,8 @@ fn initialize_sync_dir(dir_fd: i32) -> Result<(), String> {
     let create_dirs = dirs_exist.into_iter()
         .filter_map(|(name, exists)| if exists { None } else { Some(name) });
     for name in create_dirs {
-        dir.create_dir(name)
-            .map_err(|error| format!("Error creating directory: {error}"))?;
+        std::fs::create_dir(path.join(name))
+            .map_err(|error| format!("Error creating directory: {error}"))?
     }
 
     Ok(())
