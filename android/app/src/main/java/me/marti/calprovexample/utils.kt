@@ -150,9 +150,9 @@ fun Color(color: androidx.compose.ui.graphics.Color): Color {
 }
 
 /** Get a file descriptor for a file from the ContentProvider */
-fun MainActivity.openFd(uri: Uri): ParcelFileDescriptor? {
+fun MainActivity.openFd(uri: Uri, perm: String = "r"): ParcelFileDescriptor? {
     return try {
-        this.contentResolver.openFileDescriptor(uri, "r") ?: run {
+        this.contentResolver.openFileDescriptor(uri, perm) ?: run {
             Log.e("openFd", "Can't open file descriptor because the Content Provider is unavailable.")
             this.showToast("Try again in a few seconds")
             null

@@ -6,7 +6,7 @@ mod fs;
 use utils::*;
 use fs::*;
 
-use std::{collections::HashMap, fs::File, io::ErrorKind, path::PathBuf};
+use std::{collections::HashMap, fs::File, io::ErrorKind, path::{Path, PathBuf}};
 use jni::{
     objects::{JClass, JString}, JNIEnv
 };
@@ -25,6 +25,10 @@ const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
 //     };
 //     todo!()
 // }
+
+/// The name that is appended to the directories' path to get the destination directory. E.g.: `"<app_dir>/calendars"`.
+// TODO: will change so that it is automatically detected whether to use "calendar" or "contacts" depending on the file type.
+const SUFFIX_DIR: &str = "calendars";
 
 #[no_mangle]
 pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_initialize_1sync_1dir<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, dir_fd: i32) {
@@ -83,14 +87,12 @@ pub enum ImportResult {
 }
 // Getting s a file descriptor seems to be the only way to open a file not owned by the app, even with permission.
 #[no_mangle]
-pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file<'local>(mut env: JNIEnv<'static>, _class: JClass<'local>, file_fd: i32, file_name: JString<'local>, app_dir: JString<'local>, sync_dir_fd: i32) -> ImportResult {
+pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file_1internal<'local>(mut env: JNIEnv<'static>, _class: JClass<'local>, file_fd: i32, file_name: JString<'local>, app_dir: JString<'local>) -> ImportResult {
     let file_name = get_string(&env, file_name);
     // The App's internal directory where the process has permissions to read/write files.
     let app_dir = PathBuf::from(get_string(&env, app_dir));
 
-    unsafe { ENV = Some(&mut env as *mut _) };
-
-    let r = match import_file(file_fd, file_name, app_dir, sync_dir_fd) {
+    match import_file_internal(file_fd, &file_name, &app_dir) {
         Ok(v) => if v {
             ImportResult::Success
         } else {
@@ -100,81 +102,74 @@ pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file<'loca
             env.throw(error).unwrap();
             ImportResult::Error
         }
-    };
-
-    unsafe { ENV = None };
-    return r
+    }
 }
 
-/// Copy an *`.ics`* file's content into the internal *app's directory*
-/// and also to the external directory used by the *sync* service.
+/// Copy an *`.ics`* file's content into the internal *app's directory*.
 /// 
+/// A *successful* (`Ok(true)`) call to this function shold be subsequently followed by a call to [`import_file_external()`]
+/// 
+/// ### Parameters
+/// **file_fd** is the *unowned* file descriptor of the file to be imported, and **file_name** is its name (including extension).
 /// For **app_dir** and **sync_dir**, pass in the base directory regardless of whether it should go to *calendars* or *contacts*.
 /// This function will append the correct path to those directories. 
 /// 
+/// ### Return
 /// Returns `false` if the file couln't be imported because a file with that name already exists in the local directory.
-fn import_file(file_fd: i32, file_name: String, app_dir: PathBuf, external_file_fd: i32) -> Result<bool, String> {
-    /// The name that is appended to the directories' path to get the destination directory. E.g.: `"<app_dir>/calendars"`.
-    // TODO: will change so that it is automatically detected whether to use "calendar" or "contacts" depending on the file type.
-    const SUFFIX_DIR: &str = "calendars";
+fn import_file_internal(file_fd: i32, file_name: &str, app_dir: &Path) -> Result<bool, String> {
     let internal_dir = app_dir.join(SUFFIX_DIR);
-    // // The base exernal dir where files are stored. This is NOT where the file will be imported. The suffix still needs to be appended.
-    // let external_base_dir = DirRef::new_unowned(sync_dir_fd)
-    //     .map_err(|error| format!("'sync_dir_fd' is not a file descriptor for a directory: {error}"))?;
-
+    
     // Ensure the destination directories are created (internal)
     std::fs::create_dir_all(&internal_dir)
         .map_err(|error| format!("Error creating directories leading up to {internal_dir:?}: {error}"))?;
 
-    // // Ensure the destination directories are created (external)
-    // external_base_dir.create_dir(SUFFIX_DIR)
-    //     .map_err(|error| format!("Error creating directory: {error}"))?;
-
     // The file that the user picked ot import
-    let mut file = FileRef::new(unsafe { libc::dup(file_fd) });
-
-    println!("Create file to {:?}", internal_dir.join(&file_name));
+    let mut file = FileRef::new(file_fd);
 
     // Open the file to copy to in the internal directory
-    let mut internal_file = match File::create_new(internal_dir.join(&file_name)) {
+    let mut internal_file = match File::create_new(internal_dir.join(file_name)) {
         Ok(file) => file,
         Err(error) =>
             return if error.kind() == ErrorKind::AlreadyExists {
-                println!("file exists");
                 Ok(false)
             } else {
                 Err(format!("Error opening file in internal dir: {error}"))
             }
     };
 
-    // Copy file's contents to the internal directory
+    // Copy file's contents to the destination
     std::io::copy(&mut *file, &mut internal_file)
         .map_err(|error| format!("Error copying to file in App dir: {error}"))?;
 
-    let mut external_file = FileRef::new(external_file_fd);
-    std::io::copy(&mut *file, &mut *external_file)
-        .map_err(|error| format!("Error copying to file in External dir: {error}"))?;
-
-    // FIXME: cant create external file
-
-    // // Open the file to copy to in the sync directory (external)
-    // let mut external_file = match external_base_dir.create_new_file(PathBuf::from(SUFFIX_DIR).join(&file_name)) {
-    //     Ok(file) => file,
-    //     Err(error) =>
-    //         return if error.kind() == ErrorKind::AlreadyExists {
-    //             // FIXME: if internal_file didn't exist, then it won't exist here either. So this error might be redundant...
-    //             Ok(false)
-    //         } else {
-    //             // TODO: delete internal_file
-    //             Err(format!("Error opening file in external dir: {error}"))
-    //         }
-    // };
-
-    // // Copy file's contents to each respective file
-    // for copy_to in [&mut internal_file, &mut external_file] {
-    //     std::io::copy(&mut *file, copy_to)
-    //         .map_err(|error| format!("Error copying file in App dir: {error}"))?;
-    // }
-
     Ok(true)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file_1external<'local>(mut env: JNIEnv<'static>, _class: JClass<'local>, external_file_fd: i32, file_name: JString<'local>, app_dir: JString<'local>) {
+    let file_name = get_string(&env, file_name);
+    // The App's internal directory where the process has permissions to read/write files.
+    let app_dir = PathBuf::from(get_string(&env, app_dir));
+
+    if let Err(error) = import_file_external(external_file_fd, &file_name, &app_dir) {
+        // Failed to complete import because couldn't copy to external file.
+        // Delete the imported file in the internal directory.
+        if let Err(error2) = std::fs::remove_file(app_dir.join(SUFFIX_DIR).join(file_name)) {
+            env.throw(format!("{error}\nCouldnt delete internal imported file: {error2}")).unwrap();
+        };
+        env.throw(error).unwrap();
+    }
+}
+/// Write the contents of the file already imported in the *internal directory* to the file in *sync directory* (external).
+fn import_file_external(external_file_fd: i32, file_name: &str, app_dir: &Path) -> Result<(), String> {
+    // Open the file to copy FROM in the internal directory
+    let mut internal_file = std::fs::File::open(app_dir.join(SUFFIX_DIR).join(file_name))
+        .map_err(|error| format!("Error opening file in internal dir: {error}"))?;
+    // Open the file to copy TO in the sync directory (external)
+    let mut external_file = FileRef::new(external_file_fd);
+
+    // Copy file's contents to the destination
+    std::io::copy(&mut internal_file, &mut *external_file)
+        .map_err(|error| format!("Error copying to file in App dir: {error}"))?;
+
+    Ok(())
 }

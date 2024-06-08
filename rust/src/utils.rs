@@ -1,9 +1,14 @@
 use jni::{JNIEnv, objects::{JObject, JValue, JString}};
 
+pub static mut ENV: Option<*mut JNIEnv<'static>> = None;
+
 #[macro_export]
 macro_rules! println {
-    ($env:expr, $($arg:tt)*) => {
-        $crate::utils::_println($env, format!($($arg)*))
+    // ($env:expr, $($arg:tt)*) => {
+    //     $crate::utils::_println($env, format!($($arg)*))
+    // };
+    ($($arg:tt)*) => {
+        $crate::utils::_println_unsafe(format!($($arg)*))
     };
 }
 #[macro_export]
@@ -11,6 +16,12 @@ macro_rules! eprintln {
     ($env:expr, $($arg:tt)*) => {
         $crate::utils::_eprintln($env, format!($($arg)*))
     };
+}
+
+pub fn _println_unsafe(s: String) {
+    if let Some(env) = unsafe { ENV.map(|e| &mut *e) } {
+        _println(env, s)
+    }
 }
 
 #[allow(dead_code)]

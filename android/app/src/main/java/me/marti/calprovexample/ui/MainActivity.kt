@@ -3,7 +3,6 @@ package me.marti.calprovexample.ui
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.util.Log
@@ -13,7 +12,6 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
@@ -137,40 +135,57 @@ class MainActivity : ComponentActivity() {
             return null
         }
 
+        val syncDir = this.syncDir.value ?: run {
+            Log.e("importFiles", "'syncDir' is NULL. This should NEVER happen")
+            this.showToast("UNEXPECTED: 'syncDir' is NULL in importFilesIntent")
+            return null
+        }
+
         for (uri in uris) {
             if (uri.path == null)
                 continue
             println("User picked file: $uri")
 
             val fileName = uri.fileName()!!
-            val file = this.openFd(uri) ?: continue
-            // THIS IS THE ONLY WAY TO CREATE A FILE IN EXTERNAL STORAGE, EVEN IF YOU HAVE WRITE PERMISSIONS
-            val externalFile = openFd(
-                DocumentFile.fromTreeUri(this.baseContext, this.syncDir.value!!)!!
-                    .findFile("calendars")!!
-                    .createFile(CALENDAR_DOCUMENT_MIME_TYPE, fileName)!!
-                    .uri
-            )!!
+            val result: ImportFileResult = this.openFd(uri)?.use { file ->
+                DavSyncRs.importFileInternal(file.fd, fileName, this.filesDir.path)
+            } ?: continue
 
-            // val syncDir = this.openFd(
-            //     this.syncDir.value ?: run {
-            //         Log.e("importFiles", "'syncDir' is NULL. This should NEVER happen")
-            //         this.showToast("UNEXPECTED: 'syncDir' is NULL in importFilesIntent")
-            //         return null
-            //     }
-            // ) ?: continue
-
-            val result: ImportFileResult = DavSyncRs.importFile(file.fd, fileName, this.filesDir.path, externalFile.fd)
-            file.close()
+            /** Deletes the file created in the internal directory in the case that importing to external syncDir fails. */
+            fun abort() {
+                Log.d("importFiles", "Abort: Deleting internal file.")
+                java.io.File("${this.filesDir.path}/calendars/$fileName").delete()
+            }
 
             return when (result) {
                 is ImportFileResult.Error -> {
+                    abort()
                     this.showToast("Error importing file")
                     null
                 }
                 is ImportFileResult.FileExists -> result.calName
                 is ImportFileResult.Success -> {
-                    println("ImportFileResult.Success")
+                    // Import to external sync dir
+
+                    // THIS IS THE ONLY WAY TO CREATE A FILE IN EXTERNAL STORAGE, EVEN IF YOU HAVE WRITE PERMISSIONS. WHY!!!!
+                    // AND I CANT OPEN A FILE IN THE DIRECTORY, EVEN IF I HAVE THE FILE DESCRIPTOR
+                    val externalFileUri = DocumentFile.fromTreeUri(this.baseContext, syncDir)
+                        ?.findFile("calendars")
+                        ?.createFile(CALENDAR_DOCUMENT_MIME_TYPE, fileName)
+                        ?.uri
+                        ?: run {
+                            abort()
+                            return null
+                        }
+                    this.openFd(externalFileUri, "w")?.use { externalFile ->
+                        DavSyncRs.importFileExternal(externalFile.fd, fileName, this.filesDir.path)
+                    }?.let {
+                        if (it) Unit else null // Run abort code if result is false
+                    } ?: run {
+                        abort()
+                        return null
+                    }
+
                     // TODO: add parsed file to content provider
                     // DavSyncRs.parse_file(this.baseContext.filesDir.path, result.calName)
                     null
@@ -181,7 +196,6 @@ class MainActivity : ComponentActivity() {
         return null
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must set navigationBarStyle to remove the scrim.
         enableEdgeToEdge(navigationBarStyle = SystemBarStyle.light(0, 0))
@@ -483,11 +497,6 @@ class MainActivity : ComponentActivity() {
     @Suppress("MemberVisibilityCanBePrivate")
     fun showToast(text: String) = Toast.makeText(this.baseContext, text, Toast.LENGTH_SHORT).show()
     fun showToast(@StringRes resId: Int) = Toast.makeText(this.baseContext, resId, Toast.LENGTH_SHORT).show()
-    /** Shows a toast and logs an error. */
-    fun showError(text: String) {
-        this.showToast(text)
-        Log.e("Error Toast", text)
-    }
 
     private fun selectSyncDir() {
         // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.

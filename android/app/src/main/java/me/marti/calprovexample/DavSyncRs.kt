@@ -12,15 +12,14 @@ object DavSyncRs {
 
     external fun initialize_sync_dir(fd: Int)
 
-    private external fun import_file(fileFd: Int, fileName: String, appDir: String, syncDirFd: Int): Byte
-    fun importFile(fileFd: Int, fileName: String, appDir: String, syncDirFd: Int): ImportFileResult {
+    private external fun import_file_internal(fileFd: Int, fileName: String, appDir: String): Byte
+    fun importFileInternal(fileFd: Int, fileName: String, appDir: String): ImportFileResult {
         val calName = fileNameWithoutExtension(fileName)
 
         when (try {
-            this.import_file(fileFd, fileName, appDir, syncDirFd).toInt()
-        } catch(e: Exception) {
-            Log.e(null, "Error importing file. Thrown exception:")
-            Log.e(null, "$e")
+            this.import_file_internal(fileFd, fileName, appDir).toInt()
+        } catch (e: Exception) {
+            Log.e(null, "Error importing file. Thrown exception:\n$e")
             return ImportFileResult.Error
         }) {
             1 -> {
@@ -35,13 +34,24 @@ object DavSyncRs {
         }
     }
 
+    private external fun import_file_external(externalFileFd: Int, fileName: String, appDir: String)
+    fun importFileExternal(externalFileFd: Int, fileName: String, appDir: String): Boolean {
+        return try {
+            this.import_file_external(externalFileFd, fileName, appDir)
+            true
+        } catch (e: Exception) {
+            Log.e(null, "Error importing file to external storage. Thrown exception:\n$e")
+            false
+        }
+    }
+
     external fun parse_file(appDir: String, fileName: String)
 }
 
 @Suppress("unused")
 class RustPanic: RuntimeException()
 
-/** Result from calling Native function [DavSyncRs.importFile].
+/** Result from calling Native function [DavSyncRs.importFileInternal].
  *
  * [code] is the return code from the Native function.
  * `calName` is the name of the imported Calendar as it should appear in the Content Provider.
