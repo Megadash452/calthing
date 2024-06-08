@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
+import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.core.database.getStringOrNull
@@ -148,15 +150,16 @@ fun Color(color: androidx.compose.ui.graphics.Color): Color {
 }
 
 /** Get a file descriptor for a file from the ContentProvider */
-fun MainActivity.openFd(uri: Uri): android.os.ParcelFileDescriptor? {
-    val file = try {
-        this.contentResolver.openFileDescriptor(uri, "r")
-    } catch (e: Exception) { null }
-
-    if (file == null) {
-        this.showError("Couldn't open file descriptor for \"$uri\"")
-        return null
+fun MainActivity.openFd(uri: Uri): ParcelFileDescriptor? {
+    return try {
+        this.contentResolver.openFileDescriptor(uri, "r") ?: run {
+            Log.e("openFd", "Can't open file descriptor because the Content Provider is unavailable.")
+            this.showToast("Try again in a few seconds")
+            null
+        }
+    } catch (e: Exception) {
+        Log.e("openFd", "Error opening file descriptor for \"$uri\": $e")
+        this.showToast("Error opening \"${uri.lastPathSegment}\"")
+        null
     }
-
-    return file
 }

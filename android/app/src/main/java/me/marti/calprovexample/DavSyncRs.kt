@@ -12,12 +12,12 @@ object DavSyncRs {
 
     external fun initialize_sync_dir(fd: Int)
 
-    private external fun import_file(fd: Int, fileName: String, appDir: String): Byte
-    fun importFile(fd: Int, fileName: String, appDir: String): ImportFileResult {
+    private external fun import_file(fileFd: Int, fileName: String, appDir: String, syncDirFd: Int): Byte
+    fun importFile(fileFd: Int, fileName: String, appDir: String, syncDirFd: Int): ImportFileResult {
         val calName = fileNameWithoutExtension(fileName)
 
         when (try {
-            this.import_file(fd, fileName, appDir).toInt()
+            this.import_file(fileFd, fileName, appDir, syncDirFd).toInt()
         } catch(e: Exception) {
             Log.e(null, "Error importing file. Thrown exception:")
             Log.e(null, "$e")

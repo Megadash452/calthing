@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -117,34 +118,52 @@ class MainActivity : ComponentActivity() {
         println("User selected $uri for synced .ics files.")
         // If nothing works, recheck DocumentsContract and DocumentFile
     }
+
     /** Channel for sending messages between *[importFilesIntent] handler* and the UI.
      *
      * Contains the **fileName** if there was an import conflict (file exists) s and a dialog needs to be shown to the user.
      * Contains `NULL` otherwise (error or success) */
     private val importChannel = Channel<String?>()
     /** Register for file picker intent. */
-    @RequiresApi(Build.VERSION_CODES.Q)
     // TODO: Use ActivityResultContracts.GetContent instead
     private val importFilesIntent = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        importChannel.trySend(this.importFiles(uris))
+    }
+    /** Handle the import of files chosen by the user.
+     * @return See [importChannel] for an explanation of the return type. */
+    private fun importFiles(uris: List<Uri>): String? {
         if (uris.isEmpty()) {
             println("OpenFiles: User cancelled the file picker.")
-            return@registerForActivityResult
+            return null
         }
 
         for (uri in uris) {
             if (uri.path == null)
                 continue
             println("User picked file: $uri")
+
             val fileName = uri.fileName()!!
-            val file = try {
-                this.contentResolver.openFile(uri, "r", null)
-            } catch (e: Exception) { null }
-            if (file == null) {
-                this.showToast("Couldn't open file \"$fileName\"")
-                continue
-            }
-            val result: ImportFileResult = DavSyncRs.importFile(file.fd, fileName, "${this.filesDir.path}/calendars/")
-            importChannel.trySend(when (result) {
+            val file = this.openFd(uri) ?: continue
+            // THIS IS THE ONLY WAY TO CREATE A FILE IN EXTERNAL STORAGE, EVEN IF YOU HAVE WRITE PERMISSIONS
+            val externalFile = openFd(
+                DocumentFile.fromTreeUri(this.baseContext, this.syncDir.value!!)!!
+                    .findFile("calendars")!!
+                    .createFile(CALENDAR_DOCUMENT_MIME_TYPE, fileName)!!
+                    .uri
+            )!!
+
+            // val syncDir = this.openFd(
+            //     this.syncDir.value ?: run {
+            //         Log.e("importFiles", "'syncDir' is NULL. This should NEVER happen")
+            //         this.showToast("UNEXPECTED: 'syncDir' is NULL in importFilesIntent")
+            //         return null
+            //     }
+            // ) ?: continue
+
+            val result: ImportFileResult = DavSyncRs.importFile(file.fd, fileName, this.filesDir.path, externalFile.fd)
+            file.close()
+
+            return when (result) {
                 is ImportFileResult.Error -> {
                     this.showToast("Error importing file")
                     null
@@ -152,28 +171,14 @@ class MainActivity : ComponentActivity() {
                 is ImportFileResult.FileExists -> result.calName
                 is ImportFileResult.Success -> {
                     println("ImportFileResult.Success")
-                    // COPY the calendar file to the App's sync directory in shared storage
-                    this.syncDir.value?.let { syncDir ->
-                        println("Copying \"$uri\" to \"${syncDir}/calendars/$fileName\"")
-                        val copyTo = DocumentsContract.createDocument(this.contentResolver, syncDir, CALENDAR_DOCUMENT_MIME_TYPE, fileName)
-                        if (copyTo != null) {
-                            DocumentsContract.copyDocument(this.contentResolver, uri, copyTo)
-                                ?: this@MainActivity.showToast("Error copying picked file to shared storage")
-                        } else {
-                            this.showToast("Error creating calendar file in shared storage")
-                            null
-                        }
-                    } ?: run {
-                        Log.e("importFiles", "'syncDir' is NULL")
-                        this.showToast("FIX: 'syncDir' is NULL in importFilesIntent")
-                    }
                     // TODO: add parsed file to content provider
                     // DavSyncRs.parse_file(this.baseContext.filesDir.path, result.calName)
                     null
                 }
-            })
-            file.close()
+            }
         }
+
+        return null
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -482,13 +487,6 @@ class MainActivity : ComponentActivity() {
     fun showError(text: String) {
         this.showToast(text)
         Log.e("Error Toast", text)
-    }
-
-    /** Copy a file from the App's internal directory to user-picked [syncDir], retaining the same *file name*.
-     * @param path Path of the file to be copied, relative to the App's [filesDir][android.content.Context.getFilesDir].
-     * @param destDir Path of **directory** where the file will be copied to. */
-    fun copyToSyncDir(path: String, destDir: String) {
-
     }
 
     private fun selectSyncDir() {

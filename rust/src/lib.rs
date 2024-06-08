@@ -83,12 +83,14 @@ pub enum ImportResult {
 }
 // Getting s a file descriptor seems to be the only way to open a file not owned by the app, even with permission.
 #[no_mangle]
-pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, fd: i32, name: JString<'local>, appDir: JString<'local>) -> ImportResult {
-    let name = get_string(&env, name);
+pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file<'local>(mut env: JNIEnv<'static>, _class: JClass<'local>, file_fd: i32, file_name: JString<'local>, app_dir: JString<'local>, sync_dir_fd: i32) -> ImportResult {
+    let file_name = get_string(&env, file_name);
     // The App's internal directory where the process has permissions to read/write files.
-    let appDir = PathBuf::from(get_string(&env, appDir));
+    let app_dir = PathBuf::from(get_string(&env, app_dir));
 
-    match import_file(fd, name, appDir) {
+    unsafe { ENV = Some(&mut env as *mut _) };
+
+    let r = match import_file(file_fd, file_name, app_dir, sync_dir_fd) {
         Ok(v) => if v {
             ImportResult::Success
         } else {
@@ -98,31 +100,81 @@ pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file<'loca
             env.throw(error).unwrap();
             ImportResult::Error
         }
-    }
+    };
+
+    unsafe { ENV = None };
+    return r
 }
 
-/// Copy an *`.ics`* file from an external location to the program's local directory.
+/// Copy an *`.ics`* file's content into the internal *app's directory*
+/// and also to the external directory used by the *sync* service.
 /// 
-/// Returns `false` if the file couln't be imported because a file with that anme already exists in the local directory.
-fn import_file(fd: i32, name: String, appDir: PathBuf) -> Result<bool, String> {
+/// For **app_dir** and **sync_dir**, pass in the base directory regardless of whether it should go to *calendars* or *contacts*.
+/// This function will append the correct path to those directories. 
+/// 
+/// Returns `false` if the file couln't be imported because a file with that name already exists in the local directory.
+fn import_file(file_fd: i32, file_name: String, app_dir: PathBuf, external_file_fd: i32) -> Result<bool, String> {
+    /// The name that is appended to the directories' path to get the destination directory. E.g.: `"<app_dir>/calendars"`.
+    // TODO: will change so that it is automatically detected whether to use "calendar" or "contacts" depending on the file type.
+    const SUFFIX_DIR: &str = "calendars";
+    let internal_dir = app_dir.join(SUFFIX_DIR);
+    // // The base exernal dir where files are stored. This is NOT where the file will be imported. The suffix still needs to be appended.
+    // let external_base_dir = DirRef::new_unowned(sync_dir_fd)
+    //     .map_err(|error| format!("'sync_dir_fd' is not a file descriptor for a directory: {error}"))?;
+
+    // Ensure the destination directories are created (internal)
+    std::fs::create_dir_all(&internal_dir)
+        .map_err(|error| format!("Error creating directories leading up to {internal_dir:?}: {error}"))?;
+
+    // // Ensure the destination directories are created (external)
+    // external_base_dir.create_dir(SUFFIX_DIR)
+    //     .map_err(|error| format!("Error creating directory: {error}"))?;
+
     // The file that the user picked ot import
-    let mut file = FileRef::new(fd);
+    let mut file = FileRef::new(unsafe { libc::dup(file_fd) });
 
-    std::fs::create_dir_all(&appDir)
-        .map_err(|error| format!("Error creating directories leading up to {appDir:?}: {error}"))?;
+    println!("Create file to {:?}", internal_dir.join(&file_name));
 
-    let mut internal_file = match File::create_new(appDir.join(name)) {
+    // Open the file to copy to in the internal directory
+    let mut internal_file = match File::create_new(internal_dir.join(&file_name)) {
         Ok(file) => file,
         Err(error) =>
             return if error.kind() == ErrorKind::AlreadyExists {
+                println!("file exists");
                 Ok(false)
             } else {
-                Err(format!("Error opening file in App dir: {error}"))
+                Err(format!("Error opening file in internal dir: {error}"))
             }
     };
 
+    // Copy file's contents to the internal directory
     std::io::copy(&mut *file, &mut internal_file)
-        .map_err(|error| format!("Error copying file in App dir: {error}"))?;
+        .map_err(|error| format!("Error copying to file in App dir: {error}"))?;
+
+    let mut external_file = FileRef::new(external_file_fd);
+    std::io::copy(&mut *file, &mut *external_file)
+        .map_err(|error| format!("Error copying to file in External dir: {error}"))?;
+
+    // FIXME: cant create external file
+
+    // // Open the file to copy to in the sync directory (external)
+    // let mut external_file = match external_base_dir.create_new_file(PathBuf::from(SUFFIX_DIR).join(&file_name)) {
+    //     Ok(file) => file,
+    //     Err(error) =>
+    //         return if error.kind() == ErrorKind::AlreadyExists {
+    //             // FIXME: if internal_file didn't exist, then it won't exist here either. So this error might be redundant...
+    //             Ok(false)
+    //         } else {
+    //             // TODO: delete internal_file
+    //             Err(format!("Error opening file in external dir: {error}"))
+    //         }
+    // };
+
+    // // Copy file's contents to each respective file
+    // for copy_to in [&mut internal_file, &mut external_file] {
+    //     std::io::copy(&mut *file, copy_to)
+    //         .map_err(|error| format!("Error copying file in App dir: {error}"))?;
+    // }
 
     Ok(true)
 }
