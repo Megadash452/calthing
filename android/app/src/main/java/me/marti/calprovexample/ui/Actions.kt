@@ -1,5 +1,6 @@
 package me.marti.calprovexample.ui
 
+import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -62,7 +63,11 @@ sealed class Actions private constructor() {
     object NewCalendar: Actions()
     class EditCalendar(val id: Long, val name: String, val color: Color): Actions()
     object CopyCalendar: Actions()
-    class ImportFileExists(val name: String): Actions()
+    /** A conflict occurred while importing a file and requires user intervention.
+     * Contains data that will be used to show a dialog.
+     * @param name The name of the file (without extension) that was being imported.
+     * @param fileUri */
+    class ImportFileExists(val name: String, val fileUri: Uri): Actions()
 }
 
 /** Show a dialog to **Create** the info of a new Calendar for this App.

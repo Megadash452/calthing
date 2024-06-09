@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,7 +60,8 @@ import me.marti.calprovexample.calendar.getData
 import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
 import me.marti.calprovexample.calendar.toggleSync
-import me.marti.calprovexample.deleteImportedFiles
+import me.marti.calprovexample.createFiles
+import me.marti.calprovexample.deleteFiles
 import me.marti.calprovexample.finishImportOverwrite
 import me.marti.calprovexample.finishImportRename
 import me.marti.calprovexample.getAppPreferences
@@ -71,7 +73,7 @@ const val DEFAULT_CALENDAR_COLOR = 0x68acef
 const val CALENDAR_DOCUMENT_MIME_TYPE = "text/calendar"
 
 class MainActivity : ComponentActivity() {
-    private val calendarPermission = CalendarPermission(this)
+    val calendarPermission = CalendarPermission(this)
     private val asyncCalendarPermission = AsyncCalendarPermission(this)
 
     // -- Hoisted States for compose
@@ -81,12 +83,12 @@ class MainActivity : ComponentActivity() {
      * This URI can be used by the [Documents Content Provider][android.provider.DocumentsProvider]
      * by using the [DocumentsContract]. */
     val syncDir: UserPreference<Uri> = StringLikeUserPreference(PreferenceKey.SYNC_DIR_URI) { uri -> uri.toUri() }
-    /** Calendars are grouped by Account Name.
+    /** Holds the list of the App's Calendars that will be displayed to the user.
      * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device).
      *
      * Since the list is *`MutableState`*, to edit data of an element it must be **replaced** with another (use [InternalUserCalendar.copy]). */
     @SuppressLint("MutableCollectionMutableState")
-    private var userCalendars: MutableState<SnapshotStateList<InternalUserCalendar>?> = mutableStateOf(null)
+    var userCalendars: MutableState<SnapshotStateList<InternalUserCalendar>?> = mutableStateOf(null)
 
     /** Channel for sending messages between *[dirSelectIntent]* and the UI.
      *  true if the user selected the directory.
@@ -112,6 +114,8 @@ class MainActivity : ComponentActivity() {
         DavSyncRs.initialize_sync_dir(file.fd)
         file.close()
 
+        // TODO: now that syncDir is initialized, create the files for all calendars
+
         this.syncDir.value = uri
         dirSelectChannel.trySend(true)
         println("User selected $uri for synced .ics files.")
@@ -120,9 +124,8 @@ class MainActivity : ComponentActivity() {
 
     /** Channel for sending messages between *[importFilesIntent] handler* and the UI.
      *
-     * Contains the **fileName** if there was an import conflict (file exists) s and a dialog needs to be shown to the user.
-     * Contains `NULL` otherwise (error or success) */
-    private val importChannel = Channel<String?>()
+     * The value is only NOT NULL when there is a conflict that requires user input. */
+    private val importChannel = Channel<Actions.ImportFileExists?>()
     /** Register for file picker intent. */
     // TODO: Use ActivityResultContracts.GetContent instead
     private val importFilesIntent = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -143,7 +146,7 @@ class MainActivity : ComponentActivity() {
 
         // Populate the list of synced calendars, but only if the user had allowed it before.
         if (this.calendarPermission.hasPermission())
-            this.setUserCalendars()
+            this.initUserCalendars()
 
         this.setContent {
             CalProvExampleTheme {
@@ -194,8 +197,8 @@ class MainActivity : ComponentActivity() {
                                                 // The ACTION_OPEN_DOCUMENT Intent takes the MIME Types of files that can be opened
                                                 importFilesIntent.launch(arrayOf(CALENDAR_DOCUMENT_MIME_TYPE))
                                                 // TODO: Handle multiple files
-                                                importChannel.receive()?.let { name ->
-                                                    openAction = Actions.ImportFileExists(name)
+                                                importChannel.receive()?.let { data ->
+                                                    openAction = data
                                                 }
                                             }
                                         },
@@ -207,7 +210,7 @@ class MainActivity : ComponentActivity() {
                                     calendars = userCalendars.value,
                                     hasSelectedDir = syncDir.value != null,
                                     selectDirClick = { this@MainActivity.selectSyncDir() },
-                                    calPermsClick =  { this@MainActivity.setUserCalendars() },
+                                    calPermsClick =  { this@MainActivity.initUserCalendars() },
                                     syncCalendarSwitch = { id, sync -> this@MainActivity.toggleSyncCalendar(id, sync) },
                                     editCalendar = { id, name, color -> openAction = Actions.EditCalendar(id, name, color) },
                                     deleteCalendar = { id -> this@MainActivity.deleteCalendar(id, asyncScope, snackBarState) }
@@ -221,12 +224,14 @@ class MainActivity : ComponentActivity() {
 
                         // Show a dialog for the current action the user selected
                         when (openAction) {
+                            // TODO: don't allow user to use a name of a calendar that already exists
                             Actions.NewCalendar -> NewCalendarAction(
                                 close = { openAction = null },
                                 submit = { name, color -> this@MainActivity.newCalendar(name, color) }
                             )
                             is Actions.EditCalendar -> {
                                 val data = openAction as Actions.EditCalendar
+                                // TODO: don't allow user to use a name of a calendar that already exists
                                 EditCalendarAction(
                                     title = { Text("Edit Calendar") },
                                     color = data.color,
@@ -253,6 +258,8 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
+                                // TODO: If another calendar with he same name exists, ask user to rename this one
+
                                 calendars?.let { cals ->
                                     CopyCalendarAction(
                                         calendars = cals.map { cal ->
@@ -268,11 +275,12 @@ class MainActivity : ComponentActivity() {
                             }
                             is Actions.ImportFileExists -> {
                                 val data = openAction as Actions.ImportFileExists
+                                // TODO: don't show color picker
                                 ImportFileExistsAction(
                                     name = data.name,
                                     appDir = this@MainActivity.filesDir.path,
-                                    rename = { newName, color -> this@MainActivity.finishImportRename("$newName.ics", color) },
-                                    overwrite = { this@MainActivity.finishImportOverwrite("${data.name}.ics") },
+                                    rename = { newName, _ -> this@MainActivity.finishImportRename(data.fileUri, "$newName.ics") },
+                                    overwrite = { this@MainActivity.finishImportOverwrite(data.fileUri, "${data.name}.ics") },
                                     close = { openAction = null }
                                 )
                             }
@@ -313,7 +321,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun setUserCalendars() {
+    fun initUserCalendars() {
         this.calendarPermission.run {
             this.internalUserCalendars()?.also { cals ->
                 // Group calendars by Account Name
@@ -324,12 +332,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun newCalendar(name: String, color: Color) {
+    private fun newCalendar(name: String, color: Color) {
         this.calendarPermission.run {
             this.newCalendar(name, color)?.let { newCal ->
                 // Add the Calendar to the list
                 userCalendars.value?.add(newCal)
-            }
+            } ?: return@run
+
+            this@MainActivity.createFiles("$name.ics", color)
         }
     }
 
@@ -344,6 +354,8 @@ class MainActivity : ComponentActivity() {
                         color = newColor
                     )
                 }
+
+                // TODO: rename file and change color in the file
             }
         }
     }
@@ -401,10 +413,9 @@ class MainActivity : ComponentActivity() {
                     // TODO: also run this part when user closes app before timer is done
                     this@MainActivity.asyncCalendarPermission.run {
                         this.getData(id)?.let { data ->
-                            val fileName = "${data.name}.ics"
-                            this@MainActivity.deleteImportedFiles(fileName)
                             // Delete from Calendar ContentProvider
                             this.deleteCalendar(id)
+                            this@MainActivity.deleteFiles("${data.name}.ics")
                         } ?:
                             this@MainActivity.showToast("Couldn't find calendar with ID $id")
                     }

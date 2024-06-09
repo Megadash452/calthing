@@ -88,6 +88,7 @@ class CalendarPermissionScope internal constructor(val context: Context)
  * ```
  * @see CalendarPermission
  * @see AsyncCalendarPermission */
+// TODO: call initUserCalendars when user grants permission.
 abstract class Permission(internal val activity: MainActivity) {
     /** Use [MainActivity.registerForActivityResult] with [ActivityResultContracts.RequestMultiplePermissions]. */
     internal abstract val requestLauncher: ActivityResultLauncher<Array<String>>

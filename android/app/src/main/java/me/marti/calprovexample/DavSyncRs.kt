@@ -19,15 +19,15 @@ object DavSyncRs {
         when (try {
             this.import_file_internal(fileFd, fileName, appDir).toInt()
         } catch (e: Exception) {
-            Log.e(null, "Error importing file. Thrown exception:\n$e")
+            Log.e("importFileInternal", "Error importing file. Thrown exception:\n$e")
             return ImportFileResult.Error
         }) {
             1 -> {
-                println("file '${fileName}' imported successfully")
+                Log.d("importFileInternal", "file '${fileName}' imported successfully")
                 return ImportFileResult.Success(calName)
             }
             2 -> {
-                println("'${fileName}' is already imported. Overwrite?")
+                Log.d("importFileInternal", "'${fileName}' is already imported. Overwrite?")
                 return ImportFileResult.FileExists(calName)
             }
             else -> throw IllegalStateException("*prowler sfx*")
