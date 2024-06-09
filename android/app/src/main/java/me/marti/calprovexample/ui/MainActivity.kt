@@ -33,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -43,7 +42,6 @@ import kotlinx.coroutines.launch
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.DavSyncRs
-import me.marti.calprovexample.ImportFileResult
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.PreferenceKey
 import me.marti.calprovexample.R
@@ -61,12 +59,15 @@ import me.marti.calprovexample.calendar.getData
 import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
 import me.marti.calprovexample.calendar.toggleSync
-import me.marti.calprovexample.fileName
+import me.marti.calprovexample.deleteImportedFiles
+import me.marti.calprovexample.finishImportOverwrite
+import me.marti.calprovexample.finishImportRename
 import me.marti.calprovexample.getAppPreferences
-import me.marti.calprovexample.join
+import me.marti.calprovexample.importFiles
 import me.marti.calprovexample.openFd
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
+const val DEFAULT_CALENDAR_COLOR = 0x68acef
 const val CALENDAR_DOCUMENT_MIME_TYPE = "text/calendar"
 
 class MainActivity : ComponentActivity() {
@@ -79,7 +80,7 @@ class MainActivity : ComponentActivity() {
      *
      * This URI can be used by the [Documents Content Provider][android.provider.DocumentsProvider]
      * by using the [DocumentsContract]. */
-    private val syncDir: UserPreference<Uri> = StringLikeUserPreference(PreferenceKey.SYNC_DIR_URI) { uri -> uri.toUri() }
+    val syncDir: UserPreference<Uri> = StringLikeUserPreference(PreferenceKey.SYNC_DIR_URI) { uri -> uri.toUri() }
     /** Calendars are grouped by Account Name.
      * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device).
      *
@@ -126,74 +127,6 @@ class MainActivity : ComponentActivity() {
     // TODO: Use ActivityResultContracts.GetContent instead
     private val importFilesIntent = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         importChannel.trySend(this.importFiles(uris))
-    }
-    /** Handle the import of files chosen by the user.
-     * @return See [importChannel] for an explanation of the return type. */
-    private fun importFiles(uris: List<Uri>): String? {
-        if (uris.isEmpty()) {
-            println("OpenFiles: User cancelled the file picker.")
-            return null
-        }
-
-        val syncDir = this.syncDir.value ?: run {
-            Log.e("importFiles", "'syncDir' is NULL. This should NEVER happen")
-            this.showToast("UNEXPECTED: 'syncDir' is NULL in importFilesIntent")
-            return null
-        }
-
-        for (uri in uris) {
-            if (uri.path == null)
-                continue
-            println("User picked file: $uri")
-
-            val fileName = uri.fileName()!!
-            val result: ImportFileResult = this.openFd(uri)?.use { file ->
-                DavSyncRs.importFileInternal(file.fd, fileName, this.filesDir.path)
-            } ?: continue
-
-            /** Deletes the file created in the internal directory in the case that importing to external syncDir fails. */
-            fun abort() {
-                Log.d("importFiles", "Abort: Deleting internal file.")
-                java.io.File("${this.filesDir.path}/calendars/$fileName").delete()
-            }
-
-            return when (result) {
-                is ImportFileResult.Error -> {
-                    abort()
-                    this.showToast("Error importing file")
-                    null
-                }
-                is ImportFileResult.FileExists -> result.calName
-                is ImportFileResult.Success -> {
-                    // Import to external sync dir
-
-                    // THIS IS THE ONLY WAY TO CREATE A FILE IN EXTERNAL STORAGE, EVEN IF YOU HAVE WRITE PERMISSIONS. WHY!!!!
-                    // AND I CANT OPEN A FILE IN THE DIRECTORY, EVEN IF I HAVE THE FILE DESCRIPTOR
-                    val externalFileUri = DocumentFile.fromTreeUri(this.baseContext, syncDir)
-                        ?.findFile("calendars")
-                        ?.createFile(CALENDAR_DOCUMENT_MIME_TYPE, fileName)
-                        ?.uri
-                        ?: run {
-                            abort()
-                            return null
-                        }
-                    this.openFd(externalFileUri, "w")?.use { externalFile ->
-                        DavSyncRs.importFileExternal(externalFile.fd, fileName, this.filesDir.path)
-                    }?.let {
-                        if (it) Unit else null // Run abort code if result is false
-                    } ?: run {
-                        abort()
-                        return null
-                    }
-
-                    // TODO: add parsed file to content provider
-                    // DavSyncRs.parse_file(this.baseContext.filesDir.path, result.calName)
-                    null
-                }
-            }
-        }
-
-        return null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -260,6 +193,7 @@ class MainActivity : ComponentActivity() {
                                                 importChannel.tryReceive() // clear channel
                                                 // The ACTION_OPEN_DOCUMENT Intent takes the MIME Types of files that can be opened
                                                 importFilesIntent.launch(arrayOf(CALENDAR_DOCUMENT_MIME_TYPE))
+                                                // TODO: Handle multiple files
                                                 importChannel.receive()?.let { name ->
                                                     openAction = Actions.ImportFileExists(name)
                                                 }
@@ -336,8 +270,9 @@ class MainActivity : ComponentActivity() {
                                 val data = openAction as Actions.ImportFileExists
                                 ImportFileExistsAction(
                                     name = data.name,
-                                    rename = { newName, color -> /* TODO: */ },
-                                    overwrite = { /* TODO: */ },
+                                    appDir = this@MainActivity.filesDir.path,
+                                    rename = { newName, color -> this@MainActivity.finishImportRename("$newName.ics", color) },
+                                    overwrite = { this@MainActivity.finishImportOverwrite("${data.name}.ics") },
                                     close = { openAction = null }
                                 )
                             }
@@ -389,7 +324,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun newCalendar(name: String, color: Color) {
+    fun newCalendar(name: String, color: Color) {
         this.calendarPermission.run {
             this.newCalendar(name, color)?.let { newCal ->
                 // Add the Calendar to the list
@@ -463,15 +398,11 @@ class MainActivity : ComponentActivity() {
                 }
                 // Only really delete calendar after notif is dismissed.
                 SnackbarResult.Dismissed -> {
+                    // TODO: also run this part when user closes app before timer is done
                     this@MainActivity.asyncCalendarPermission.run {
                         this.getData(id)?.let { data ->
                             val fileName = "${data.name}.ics"
-                            // Delete from App's internal storage
-                            java.io.File("${this@MainActivity.filesDir.path}/calendars/$fileName")
-                            // Delete from syncDir in shared storage
-                            this@MainActivity.syncDir.value?.let { syncDir ->
-                                DocumentsContract.deleteDocument(this@MainActivity.contentResolver, syncDir.join("calendars/$fileName")!!)
-                            }
+                            this@MainActivity.deleteImportedFiles(fileName)
                             // Delete from Calendar ContentProvider
                             this.deleteCalendar(id)
                         } ?:

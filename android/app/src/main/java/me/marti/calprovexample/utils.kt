@@ -54,6 +54,33 @@ fun Uri.fileName(): String? {
     // first split the base of the path, then split the other components
     return path.split(':', limit = 2).last().split('/').last()
 }
+
+fun fileNameWithoutExtension(fileName: String): String {
+    val split = fileName.split('.')
+    return if (split.size == 1)
+    // File name has no extensions
+        fileName
+    else
+        split.dropLast(1).joinToString(".")
+}
+
+/** Determines whether file should go to *`calendars`* or *`contacts`* based on the file's extension.
+ * @throws Exception if the extension is for neither calendars or contacts. */
+fun destinationDir(fileName: String): String {
+    val errorMsg = "Invalid fileName \"$fileName\". Should have extension \".ics\" or \".vcard\"."
+    val extension = try {
+        fileName.split('.').last()
+    } catch (e: NoSuchElementException) {
+        throw Exception(errorMsg)
+    }
+
+    return when (extension) {
+        "ics" -> "calendars"
+        "vcard" -> "contacts"
+        else -> throw Exception(errorMsg)
+    }
+}
+
 /** Append *[path] segments* to the end of the Uri path.
  *
  * Returns `NULL` if the URI is not a path. */
@@ -63,15 +90,6 @@ fun Uri.join(path: String): Uri? {
     // Prevent adding a second slash to the join point of the paths
     val slash = if (this.lastPathSegment!!.last() == '/') "" else "/"
     return "${this}${URLEncoder.encode("$slash$path", "utf-8")}".toUri()
-}
-
-fun fileNameWithoutExtension(fileName: String): String {
-    val split = fileName.split('.')
-    return if (split.size == 1)
-        // File name has no extensions
-        fileName
-    else
-        split.dropLast(1).joinToString(".")
 }
 
 data class Color(

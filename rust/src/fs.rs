@@ -136,26 +136,35 @@ impl DirRef {
         }
     }
 
-    /// Create a new file in a path *relative* to this directory.
-    /// 
-    /// If the file exists, an **error** with code [`AlreadyExists`](io::ErrorKind::AlreadyExists) will be returned.
-    pub fn create_new_file(&self, path: impl AsRef<Path>) -> io::Result<std::fs::File> {
+    /// Helper for opening a file.
+    /// **mode** is only used if the flag `O_CREAT` is passed. Otherwise it can be 0
+    fn openat(&self, path: impl AsRef<Path>, flags: libc::c_int, mode: libc::c_uint) -> io::Result<std::fs::File> {
         let path = path_to_cstring(path.as_ref())?;
 
         unsafe {
-            use libc::*;
-
-            let file = openat(self.fd, path.as_ptr(),
-                O_CREAT | O_EXCL | O_RDWR, // O_EXCL: fails if file exists
-                // Allow all permissions except execute (note: file will not be created with all these permissions)
-                Self::DEFAULT_FILE_MODE as libc::c_uint
-            );
+            let file = libc::openat(self.fd, path.as_ptr(), flags, mode);
             if file == -1 {
                 return Err(io::Error::last_os_error())
             }
 
             Ok(File::from_raw_fd(file))
         }
+    }
+
+    /// Create a new file in a path *relative* to this directory.
+    /// 
+    /// If the file exists, an **error** with code [`AlreadyExists`](io::ErrorKind::AlreadyExists) will be returned.
+    pub fn create_new_file(&self, path: impl AsRef<Path>) -> io::Result<std::fs::File> {
+        self.openat(
+            path,
+            libc::O_CREAT | libc::O_EXCL | libc::O_RDWR, // O_EXCL: fails if file exists
+            // Allow all permissions except execute (note: file will not be created with all these permissions)
+            Self::DEFAULT_FILE_MODE as libc::c_uint
+        )
+    }
+    /// Open a file that exists
+    pub fn open_file(&self, path: impl AsRef<Path>, write: bool) -> io::Result<std::fs::File> {
+        self.openat(path, if write { libc::O_RDWR } else { libc::O_RDONLY }, 0)
     }
 }
 impl Drop for DirRef {

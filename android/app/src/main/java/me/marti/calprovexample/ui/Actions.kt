@@ -56,8 +56,6 @@ import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.ui.NameCheck.Companion.checkError
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
-const val DEFAULT_CALENDAR_COLOR = 0x68acef
-
 // Sum-type-like enum
 @Suppress("ConvertObjectToDataObject")
 sealed class Actions private constructor() {
@@ -147,7 +145,7 @@ fun EditCalendarAction(
     // Does all the checks before calling `submit`
     val onSubmit = {
         nameError = nameChecks.checkError(name)
-        if (nameError != null) {
+        if (nameError == null) {
             close()
             submit(name, Color(color))
         }
@@ -330,12 +328,14 @@ private fun Calendar(modifier: Modifier = Modifier, color: Color, name: String, 
  * or **overwrite** the existing calendar when there is an import conflict.
  *
  * @param name The name of the calendar that was attempted import.
+ * @param appDir The path of the app's internal directory. Is used to check whether the user is trying to use another name that already exists.
  * @param rename The user decided to assign the import a different name. Import the file with that name.
  * @param overwrite The user decided to remove the existing calendar and import the new one. */
 @Composable
 fun ImportFileExistsAction(
     modifier: Modifier = Modifier,
     name: String,
+    appDir: String,
     rename: (String, Color) -> Unit,
     overwrite: () -> Unit,
     close: () -> Unit
@@ -350,7 +350,9 @@ fun ImportFileExistsAction(
             name = name,
             nameChecks = listOf(
                 NameCheck.BlankCheck,
-                NameCheck({ new -> new != name }, "Name must be different")
+                NameCheck({ new -> new != name }, "Name must be different"),
+                // TODO? Maybe use the content provider to check this
+                NameCheck({ new -> !java.io.File("$appDir/calendars/$new.ics").exists() }, "Another calendar with this name exists")
             ),
             close = { isRename = false },
             submit = { newName, color ->
@@ -517,6 +519,7 @@ private fun ImportFilePreview() {
     CalProvExampleTheme {
         ImportFileExistsAction(
             name = "MyCalendar",
+            appDir = "/",
             rename = { _, _ -> }, overwrite = {},
             close = {}
         )
