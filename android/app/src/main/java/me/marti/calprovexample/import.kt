@@ -181,9 +181,27 @@ fun MainActivity.deleteFiles(fileName: String) {
     this.syncDir.value?.let { syncDir ->
         val dest = destinationDir(fileName)
         // Delete from App's internal storage
-        java.io.File("${this.filesDir.path}/$dest/$fileName").delete()
+        try {
+            java.io.File("${this.filesDir.path}/$dest/$fileName").delete()
+        } catch (e: Exception) {
+            false
+        }.let {
+            if (!it) {
+                Log.e("deleteFiles", "Error deleting file in internal directory.")
+                return
+            }
+        }
         // Delete from syncDir in shared storage
-        DocumentsContract.deleteDocument(this.contentResolver, syncDir.join("$dest/$fileName")!!)
+        try {
+            DocumentsContract.deleteDocument(this.contentResolver, syncDir.join("$dest/$fileName")!!)
+        } catch (e: Exception) {
+            false
+        }.let {
+            if (!it) {
+                Log.e("deleteFiles", "Error deleting file in external directory.")
+                return
+            }
+        }
     }
 }
 

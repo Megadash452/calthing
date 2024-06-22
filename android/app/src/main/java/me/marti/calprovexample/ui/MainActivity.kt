@@ -53,10 +53,9 @@ import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.calendar.copyFromDevice
-import me.marti.calprovexample.calendar.deleteCalendar
+import me.marti.calprovexample.calendar.deleteCalendarByName
 import me.marti.calprovexample.calendar.editCalendar
 import me.marti.calprovexample.calendar.externalUserCalendars
-import me.marti.calprovexample.calendar.getData
 import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
 import me.marti.calprovexample.calendar.toggleSync
@@ -66,8 +65,10 @@ import me.marti.calprovexample.finishImportOverwrite
 import me.marti.calprovexample.finishImportRename
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.importFiles
+import me.marti.calprovexample.join
 import me.marti.calprovexample.openFd
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
+import java.io.File as Path
 
 const val DEFAULT_CALENDAR_COLOR = 0x68acef
 const val CALENDAR_DOCUMENT_MIME_TYPE = "text/calendar"
@@ -156,6 +157,9 @@ class MainActivity : ComponentActivity() {
         val fragmentCals = BooleanUserPreference(PreferenceKey.FRAGMENT_CALS)
         fragmentCals.initStore(preferences)
 
+        // Clear recycle bin
+        Path("${this.filesDir}/deleted/").deleteRecursively()
+
         Log.d(null, "Initializing Main Activity")
 
         // Populate the list of synced calendars, but only if the user had allowed it before.
@@ -237,7 +241,7 @@ class MainActivity : ComponentActivity() {
                                     calPermsClick =  { this@MainActivity.initUserCalendars() },
                                     syncCalendarSwitch = { id, sync -> this@MainActivity.toggleSyncCalendar(id, sync) },
                                     editCalendar = { id, name, color -> openAction = Actions.EditCalendar(id, name, color) },
-                                    deleteCalendar = { id -> this@MainActivity.deleteCalendar(id, asyncScope, snackBarState) }
+                                    deleteCalendar = { name -> this@MainActivity.deleteCalendar(name, asyncScope, snackBarState) }
                                 )
                             }
 
@@ -383,53 +387,98 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun deleteCalendar(id: Long, asyncScope: CoroutineScope, snackBarState: SnackbarHostState) {
+    /** Delete the calendar and show a **snack-bar** that can undo the deletion.
+     *
+     * Moves the deleted calendar to the `"deleted"` directory (like a recycle bin) before fully deleting it.
+     * The file is only fully deleted after the snack-bar is dismissed or app is reopened. */
+    private fun deleteCalendar(name: String, asyncScope: CoroutineScope, snackBarState: SnackbarHostState) {
         val calendars = userCalendars.value ?: run {
             Log.e("UI deleteCalendar", "Trying to delete Calendar when 'userCalendars' is NULL")
             return
         }
-        // Keep "deleted" Calendar so that it can be restored later
-        val deleted = calendars.let { cals ->
-            // Remove the deleted Calendar from the list
-            val i = cals.indexOfFirst { cal -> cal.id == id }
-            if (i == -1) {
-                Log.e("UI deleteCalendar", "Trying to delete Calendar that doesn't exist")
-                return
-            }
-            Pair(i, cals.removeAt(i))
+        val syncDir = this.syncDir.value ?: run {
+            Log.e("UI deleteCalendar", "No syncDir :(")
+            return
         }
+        val fileName = "$name.ics"
         val msg = "Calendar deleted"
 
+        fun Path.copyTo(path: Path): Path? {
+            return try {
+                java.io.File("${this@MainActivity.filesDir}/calendars/$fileName")
+                    .copyTo(path, true)
+            } catch (e: Exception) {
+                Log.e("UI deleteCalendar", "Error copying \"${this.name}\" to \"$path\" directory: $e")
+                null
+            }
+        }
+
+        // Copy internal file to recycle bin before deleting everything
+        val deleted = Path("${this.filesDir}/calendars/$fileName")
+            .copyTo(Path("${this.filesDir}/deleted/calendars/$fileName"))
+            ?: return
+        // Delete the Calendar from the list
+        val i = calendars.indexOfFirst { cal -> cal.name == name }
+        if (i == -1) {
+            Log.e("UI deleteCalendar", "Trying to delete Calendar that doesn't exist")
+            return
+        }
+        calendars.removeAt(i)
+        // Delete the Calendar files
+        this.deleteFiles(fileName)
+
         asyncScope.launch {
-            // If there is already a snack-bar with similar msg, dismiss it to show this one.
+            // Delete the Calendar from the Content Provider
+            this@MainActivity.asyncCalendarPermission.run {
+                this.deleteCalendarByName(name)
+            }?.run {
+                Log.w("UI deleteCalendar", "Calendar \"$name\" not removed from Content Provider.")
+            } ?: run {
+                Log.e("UI deleteCalendar", "Calendar permission denied")
+                return@launch
+            }
+
+            // If there is already a 'Deleted Calendar' snack-bar, dismiss it to show this one.
             snackBarState.currentSnackbarData?.let { current ->
                 if (current.visuals.message == msg)
                     current.dismiss()
             }
-            val result = snackBarState.showSnackbar(
+
+            when (snackBarState.showSnackbar(
                 message = msg,
                 actionLabel = "Undo",
                 duration = SnackbarDuration.Short
-            )
-            when (result) {
+            )) {
                 // Restore Calendar when user presses "Undo"
                 SnackbarResult.ActionPerformed -> {
-                    val (idx, calendar) = deleted
-                    if (idx < calendars.size)
-                        calendars.add(idx, calendar)
-                    else
-                        calendars.add(calendar)
-                }
-                // Only really delete calendar after notif is dismissed.
-                SnackbarResult.Dismissed -> {
-                    // TODO: also run this part when user closes app before timer is done
+                    // Copy file internal dir
+                    deleted.copyTo(Path("${this@MainActivity.filesDir}/calendars/$fileName"))
+                        ?: return@launch
+                    // Copy file to external dir
+                    DocumentsContract.copyDocument(this@MainActivity.contentResolver,
+                        deleted.toUri(),
+                        syncDir.join("calendars/$fileName")!!,
+                    )
+                    // File in recycle bin is no longer needed
+                    deleted.delete()
+                    // Create entry in Content Provider, and parse the file's content
+                    // TODO: parse content
                     this@MainActivity.asyncCalendarPermission.run {
-                        this.getData(id)?.let { data ->
-                            // Delete from Calendar ContentProvider
-                            this.deleteCalendar(id)
-                            this@MainActivity.deleteFiles("${data.name}.ics")
-                        } ?:
-                            this@MainActivity.showToast("Couldn't find calendar with ID $id")
+                        this.newCalendar(name, Color(DEFAULT_CALENDAR_COLOR))?.let { newCal ->
+                            // Add the Calendar to the list
+                            userCalendars.value?.add(newCal)
+                        } ?: return@run
+                    }
+                }
+                // Fully delete Calendar by deleting file in recycle bin
+                SnackbarResult.Dismissed -> {
+                    try {
+                        deleted.delete()
+                    } catch (e: Exception) {
+                        false
+                    }.let {
+                        if (!it)
+                            Log.e("deleteFiles", "Error deleting file in internal directory.")
                     }
                 }
             }

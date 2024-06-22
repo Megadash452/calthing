@@ -614,7 +614,7 @@ private fun ExpandedFabBackgroundOverlay(modifier: Modifier = Modifier, expanded
  * @param deleteCalendar
  *   Runs when the user clicks the **Delete** Button for a Calendar.
  *   #### Arguments
- *   1. (*`Long`*): The **ID** of the Calendar. */
+ *   1. (*`String`*): The **name** of the Calendar. */
 @Composable
 fun Calendars(
     modifier: Modifier = Modifier,
@@ -624,7 +624,7 @@ fun Calendars(
     calPermsClick: () -> Unit = {},
     syncCalendarSwitch: (Long, Boolean) -> Unit = { _, _ -> },
     editCalendar: (Long, String, InternalColor) -> Unit = { _, _, _ -> },
-    deleteCalendar: (Long) -> Unit = {}
+    deleteCalendar: (String) -> Unit = {}
 ) {
     @Composable
     fun InfoColumn(content: @Composable ColumnScope.() -> Unit) {
@@ -679,7 +679,7 @@ fun Calendars(
                         onSwitchClick = { checked -> syncCalendarSwitch(cal.id, checked) },
                         editClick = { editCalendar(cal.id, cal.name, cal.color) },
                         deleteClick = {
-                            deleteCalendar(cal.id)
+                            deleteCalendar(cal.name)
                             // Deselect so that when Calendar is restored it is not expanded
                             expandedItem = null
                         }
