@@ -5,51 +5,66 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
+import me.marti.calprovexample.calendar.deleteCalendarByName
 import me.marti.calprovexample.calendar.newCalendar
-import me.marti.calprovexample.ui.Actions
 import me.marti.calprovexample.ui.CALENDAR_DOCUMENT_MIME_TYPE
 import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
 import me.marti.calprovexample.ui.MainActivity
 
+/** A conflict occurred while importing a file and requires user intervention.
+ * Contains data that will be used to show a dialog.
+ * @param name The name of the file (without extension) that was being imported.
+ * @param fileUri */
+class ImportFileExists(val name: String, val fileUri: Uri)
+
 /** Handle the import of files chosen by the user.
+ *
+ * Sends a message on the [MainActivity.importChannel]
+ *
  * @return Data to be sent the import channel to show the dialog. */
-fun MainActivity.importFiles(uris: List<Uri>): Actions.ImportFileExists? {
-    if (uris.isEmpty()) {
-        println("OpenFiles: User cancelled the file picker.")
-        return null
-    }
+fun MainActivity.importFiles(uris: List<Uri>) {
+    this.importChannel?.let { importChannel ->
+        // Channel must be closed after returning from this function to release the thread from the loop
+        val close = {
+            importChannel.close()
+            this.importChannel = null
+        }
 
-    val syncDir = this.syncDir.value ?: run {
-        Log.e("importFiles", "'syncDir' is NULL. This should NEVER happen")
-        this.showToast("UNEXPECTED: 'syncDir' is NULL in importFilesIntent")
-        return null
-    }
+        if (uris.isEmpty()) {
+            println("OpenFiles: User cancelled the file picker.")
+            close()
+            return
+        }
 
-    for (uri in uris) {
-        if (uri.path == null)
-            continue
-        println("User picked file: $uri")
+        val syncDir = this.syncDir.value ?: run {
+            Log.e("importFiles", "'syncDir' is NULL. This should NEVER happen")
+            this.showToast("UNEXPECTED: 'syncDir' is NULL in importFilesIntent")
+            close()
+            return
+        }
 
-        val fileName = uri.fileName()!!
-        val result: ImportFileResult = this.openFd(uri)?.use { file ->
-            DavSyncRs.importFileInternal(file.fd, fileName, this.filesDir.path)
-        } ?: continue
+        for (uri in uris) {
+            if (uri.path == null)
+                continue
+            println("User picked file: $uri")
 
-        // TODO: send message to importChannel for every attempt, instead of returning only the first
-        return when (result) {
-            is ImportFileResult.Error -> {
-                this.showToast("Error importing file")
-                null
-            }
-            is ImportFileResult.FileExists -> Actions.ImportFileExists(result.calName, uri)
-            is ImportFileResult.Success -> {
-                this.importExternal(fileName, syncDir)
-                null
+            val fileName = uri.fileName()!!
+            val result: ImportFileResult = this.openFd(uri)?.use { file ->
+                DavSyncRs.importFileInternal(file.fd, fileName, this.filesDir.path)
+            } ?: continue
+
+            // Send message to importChannel for every attempt
+            when (result) {
+                is ImportFileResult.Error -> this.showToast("Error importing file")
+                // TODO: maybe use null as a stream terminator instead of resetting the channel??
+                is ImportFileResult.FileExists -> importChannel.trySend(ImportFileExists(result.calName, uri))
+                is ImportFileResult.Success -> this.importExternal(fileName, syncDir)
             }
         }
-    }
 
-    return null
+        // close channel when done with all files
+        close()
+    }
 }
 
 /** Deletes the file created in the internal directory in the case that importing to external syncDir fails or user cancels. */
@@ -64,8 +79,6 @@ private fun MainActivity.abortImport(fileName: String) {
 /** Creates the file in the external **syncDir** and writes the contents.
  * Helper function to avoid repeating code */
 private fun MainActivity.importExternal(fileName: String, syncDir: Uri) {
-    // Import to external sync dir
-
     // THIS IS THE ONLY WAY TO CREATE A FILE IN EXTERNAL STORAGE, EVEN IF YOU HAVE WRITE PERMISSIONS. WHY!!!!
     // AND I CANT OPEN A FILE IN THE DIRECTORY, EVEN IF I HAVE THE FILE DESCRIPTOR
     val externalFileUri = DocumentsContract.createDocument(this.contentResolver,
@@ -100,13 +113,12 @@ fun MainActivity.finishImportRename(fileUri: Uri, newFileName: String) {
         return
     }
 
-    when (this.openFd(fileUri)?.use { file ->
+    // Try again with different name
+    when (this.openFd(fileUri)?.let { file ->
         DavSyncRs.importFileInternal(file.fd, newFileName, this.filesDir.path)
     }) {
         null -> {}
-        is ImportFileResult.Error -> {
-            this.showToast("Error importing file")
-        }
+        is ImportFileResult.Error -> this.showToast("Error importing file")
         is ImportFileResult.FileExists -> {
             Log.e("finishImport (Rename)", "Tried to import file under different name, but still another file exists with the new name.")
             this.showToast("Error importing file")
@@ -115,10 +127,49 @@ fun MainActivity.finishImportRename(fileUri: Uri, newFileName: String) {
     }
 }
 /** Finish importing a file that caused a conflict (because a file with that name already exists),
- * but the user chose to **overwrite** the existing file.
- * @param fileName must include the extension (e.g. `"name.ics"`). */
-fun MainActivity.finishImportOverwrite(fileUri: Uri, fileName: String) {
-    TODO()
+ * but the user chose to **overwrite** the existing file. */
+fun MainActivity.finishImportOverwrite(fileUri: Uri) {
+    val syncDir = this.syncDir.value ?: run {
+        Log.e("finishImport (Overwrite)", "'syncDir' is NULL. This should NEVER happen")
+        this.showToast("UNEXPECTED: 'syncDir' is NULL in importFilesIntent")
+        return
+    }
+    // Get the name of the file to be imported ("name.ics") from the URI
+    val fileName = fileUri.fileName()!!
+    val name = fileNameWithoutExtension(fileName)
+
+    // TODO: show snack-bar to undo overwrite import (merge with MainActivity.deleteCalendar)
+
+    // Delete calendar from view list
+    this.userCalendars.value?.let { cals ->
+        val i = cals.indexOfFirst { cal -> cal.name == name }
+        if (i == -1) {
+            Log.e("finishImport (Overwrite)", "Trying to delete Calendar that doesn't exist")
+            return
+        }
+        cals.removeAt(i)
+    }
+    // Delete Calendar from content provider
+    this.calendarPermission.run {
+        this.deleteCalendarByName(name)
+    }
+    // Delete Calendar from filesystem
+    this.deleteFiles(fileName)
+
+    // Import files normally
+    when (this.openFd(fileUri)?.use { file ->
+        DavSyncRs.importFileInternal(file.fd, fileName, this.filesDir.path)
+    }) {
+        null -> {}
+        is ImportFileResult.Error -> {
+            this.showToast("Error importing file")
+        }
+        is ImportFileResult.FileExists -> {
+            Log.e("finishImport (Overwrite)", "Tried to import file after deleting conflicts, but still another file exists with the same name.")
+            this.showToast("Error importing file")
+        }
+        is ImportFileResult.Success -> this.importExternal(fileName, syncDir)
+    }
 }
 
 /** Delete the files from the internal directory and the external sync directory.
@@ -154,8 +205,9 @@ private fun MainActivity.addImportedCalendar(name: String, color: Color = Color(
  * Only creates the files if syncDir is initialized, otherwise does nothing.
  *
  * Automatically detects whether file is in *`calendars`* or *`contacts`*.
- * @param fileName must include the extension (e.g. `"name.ics"`).*/
-fun MainActivity.createFiles(fileName: String, color: Color) {
+ * @param fileName must include the extension (e.g. `"name.ics"`).
+ * @param id If the ID of a calendar is given, it will write all its data in the ContentProvider to the files that were created. */
+fun MainActivity.createFiles(fileName: String, color: Color, id: Long? = null) {
     this.syncDir.value?.let { syncDir ->
         val dest = destinationDir(fileName)
         // Create file in App's internal storage
@@ -167,6 +219,10 @@ fun MainActivity.createFiles(fileName: String, color: Color) {
             fileNameWithoutExtension(fileName)
         )
 
-        // TODO: write color data to file
+        // TODO: write color data to files
+
+        id?.let { id ->
+            // TODO: write calendar data to files
+        }
     }
 }

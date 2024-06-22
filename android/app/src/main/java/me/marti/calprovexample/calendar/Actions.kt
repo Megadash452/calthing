@@ -250,6 +250,18 @@ fun CalendarPermissionScope.deleteCalendar(id: Long): Boolean {
     return success
 }
 
+/** The same as delete, but takes a **name** instead of a Calendar ID.
+ * This works because calendar names are unique. */
+fun CalendarPermissionScope.deleteCalendarByName(name: String): Boolean {
+    return this.context.contentResolver.delete(
+        CalendarContract.Calendars.CONTENT_URI,
+        "${CalendarContract.Calendars.CALENDAR_DISPLAY_NAME} = ?",
+        arrayOf(name)
+    ).run {
+        this != 0
+    }
+}
+
 /** Copy a set of Calendars created by other apps in the device so that they can be synced with this app.
  *  Also copies all the Events, Reminders, and Attendees.
  *

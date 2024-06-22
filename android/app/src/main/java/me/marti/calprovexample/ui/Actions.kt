@@ -1,6 +1,6 @@
 package me.marti.calprovexample.ui
 
-import android.net.Uri
+import android.content.Context
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -63,11 +64,6 @@ sealed class Actions private constructor() {
     object NewCalendar: Actions()
     class EditCalendar(val id: Long, val name: String, val color: Color): Actions()
     object CopyCalendar: Actions()
-    /** A conflict occurred while importing a file and requires user intervention.
-     * Contains data that will be used to show a dialog.
-     * @param name The name of the file (without extension) that was being imported.
-     * @param fileUri */
-    class ImportFileExists(val name: String, val fileUri: Uri): Actions()
 }
 
 /** Show a dialog to **Create** the info of a new Calendar for this App.
@@ -85,7 +81,6 @@ fun NewCalendarAction(modifier: Modifier = Modifier, close: () -> Unit, submit: 
         title = { Text("Create new Calendar") },
         submitButtonContent = { Text("Create") },
         name = "",
-        nameChecks = listOf(NameCheck.BlankCheck),
         close = close,
         submit = submit
     )
@@ -99,6 +94,8 @@ class NameCheck(val check: (String) -> Boolean, val error: String) {
     companion object {
         // Some common checks
         val BlankCheck = NameCheck({ name -> name.isNotBlank() }, "Name can't be blank")
+        fun uniqueName(context: Context): NameCheck =
+            NameCheck({ name -> !java.io.File("${context.filesDir.path}/calendars/$name.ics").exists() }, "Name must be unique")
 
         /** Perform all the checks on the `name`. Returns [error] of the [NameCheck] that failed. */
         fun List<NameCheck>.checkError(name: String): String? {
@@ -134,7 +131,7 @@ fun EditCalendarAction(
     color: Color = Color(DEFAULT_CALENDAR_COLOR),
     title: @Composable () -> Unit,
     name: String,
-    nameChecks: List<NameCheck>,
+    nameChecks: List<NameCheck> = listOf(NameCheck.BlankCheck, NameCheck.uniqueName(LocalContext.current)),
     close: () -> Unit,
     submit: (String, Color) -> Unit
 ) {
@@ -333,14 +330,12 @@ private fun Calendar(modifier: Modifier = Modifier, color: Color, name: String, 
  * or **overwrite** the existing calendar when there is an import conflict.
  *
  * @param name The name of the calendar that was attempted import.
- * @param appDir The path of the app's internal directory. Is used to check whether the user is trying to use another name that already exists.
  * @param rename The user decided to assign the import a different name. Import the file with that name.
  * @param overwrite The user decided to remove the existing calendar and import the new one. */
 @Composable
 fun ImportFileExistsAction(
     modifier: Modifier = Modifier,
     name: String,
-    appDir: String,
     rename: (String, Color) -> Unit,
     overwrite: () -> Unit,
     close: () -> Unit
@@ -348,6 +343,7 @@ fun ImportFileExistsAction(
     var isRename by remember { mutableStateOf(false) }
 
     if (isRename) {
+        // TODO: don't show color picker
         EditCalendarAction(
             title = { Text("Rename import") },
             submitButtonContent = { Text("Rename") },
@@ -355,9 +351,8 @@ fun ImportFileExistsAction(
             name = name,
             nameChecks = listOf(
                 NameCheck.BlankCheck,
+                NameCheck.uniqueName(LocalContext.current),
                 NameCheck({ new -> new != name }, "Name must be different"),
-                // TODO? Maybe use the content provider to check this
-                NameCheck({ new -> !java.io.File("$appDir/calendars/$new.ics").exists() }, "Another calendar with this name exists")
             ),
             close = { isRename = false },
             submit = { newName, color ->
@@ -524,7 +519,6 @@ private fun ImportFilePreview() {
     CalProvExampleTheme {
         ImportFileExistsAction(
             name = "MyCalendar",
-            appDir = "/",
             rename = { _, _ -> }, overwrite = {},
             close = {}
         )

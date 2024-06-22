@@ -105,7 +105,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.consume
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.R
 import me.marti.calprovexample.calendar.InternalUserCalendar
@@ -854,51 +853,71 @@ object AsyncDialog {
      * @return **`true`** when user clicks *Ok*, and **`false`** when user dismisses dialog. */
     suspend fun show(msg: String): Boolean {
         this.channel.tryReceive() // clear channel
-        this.components = Components(msg, true)
+        this.content = Content.Text(msg, true)
         return this.channel.receive()
     }
 
     /** Like [show], but will not allow the user to *Cancel* the dialog and will only show the *Ok* button. */
     suspend fun showNoCancel(msg: String) {
         this.channel.tryReceive() // clear channel
-        this.components = Components(msg, false)
+        this.content = Content.Text(msg, false)
         this.channel.receive()
     }
 
-    private class Components(
-        /** The text body of the dialog. */
-        val message: String,
-        /** Whether the dialog can be canceled, or will it only show an Ok button. */
-        val cancel: Boolean
-    )
+    /** Show a dialog with some custom content and wait for a response.
+     * @param dialog The composable dialog that will be shown.
+     * The dialog will call the **`close`** function when it is done (either dismissed or user submitted). */
+    suspend fun showDialog(dialog: @Composable (close: () -> Unit) -> Unit) {
+        this.channel.tryReceive() // clear channel
+        this.content = Content.Custom(dialog)
+        this.channel.receive()
+    }
+
+    /** Sum type representing the type of data the caller submitted. */
+    private sealed class Content private constructor() {
+        /** The caller just wants to show a simple dialog with some text. */
+        class Text(
+            /** The text body of the dialog. */
+            val message: String,
+            /** Whether the dialog can be canceled, or will it only show an Ok button. */
+            val cancel: Boolean
+        ) : Content()
+        /** The caller wants to show a custom dialog. */
+        class Custom(val dialog: @Composable (close: () -> Unit) -> Unit): Content()
+    }
 
     /** Send message from [Dialog] to the suspend function [show].
      *  Sends **`true`** when user clicks *Ok*.
      *  Sends **`false`** when user clicks *Cancel* or outside the dialog. */
     private val channel = Channel<Boolean>()
-    /** Shows the dialog when is **not `NULL`** with the message as the body of the dialog. */
-    private var components by mutableStateOf<Components?>(null)
+    /** The data that will be be used when `show`ing the dialog. */
+    private var content by mutableStateOf<Content?>(null)
 
     @Composable
     fun Dialog() {
-        this.components?.let { comp ->
+        this.content?.let {
             val cancel = {
                 this.channel.trySend(false)
-                this.components = null
+                this.content = null
             }
-            AlertDialog(
-                confirmButton = { TextButton(onClick = {
-                    this.channel.trySend(true)
-                    this.components = null
-                }) { Text(text = "Ok") } },
-                dismissButton = if (comp.cancel) { {
-                    TextButton(onClick = cancel) {
-                        Text(text = "Cancel")
-                    }
-                } } else null,
-                onDismissRequest = if (comp.cancel) cancel else { {} },
-                text = { Text(comp.message) }
-            )
+            when (it) {
+                is Content.Text -> {
+                    AlertDialog(
+                        confirmButton = { TextButton(onClick = {
+                            this.channel.trySend(true)
+                            this.content = null
+                        }) { Text(text = "Ok") } },
+                        dismissButton = if (it.cancel) { {
+                            TextButton(onClick = cancel) {
+                                Text(text = "Cancel")
+                            }
+                        } } else null,
+                        onDismissRequest = if (it.cancel) cancel else { {} },
+                        text = { Text(it.message) }
+                    )
+                }
+                is Content.Custom -> it.dialog(cancel)
+            }
         }
     }
 }
