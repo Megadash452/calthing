@@ -1,4 +1,4 @@
-use std::{ffi::{CStr, CString}, fs::File, io, ops::{Deref, DerefMut}, os::{fd::FromRawFd as _, unix::ffi::OsStrExt}, path::{Path, PathBuf}};
+use std::{ffi::{CStr, CString}, fs::File, io, mem::ManuallyDrop, ops::{Deref, DerefMut}, os::{fd::FromRawFd as _, unix::ffi::OsStrExt}, path::{Path, PathBuf}};
 
 fn stat(fd: i32) -> io::Result<libc::stat> {
     unsafe {
@@ -42,10 +42,10 @@ fn path_to_cstring(path: &Path) -> io::Result<CString> {
 /// A file that is *not owned* by this object, meaning the file descriptor is *not consumed*.
 /// 
 /// Use this intead of [File] when getting a `ParcelFileDescriptor` from opening a file in Java.
-pub struct FileRef(File);
+pub struct FileRef(ManuallyDrop<File>);
 impl FileRef {
     pub fn new(fd: i32) -> Self {
-        Self(unsafe { File::from_raw_fd(fd) })
+        Self(unsafe { ManuallyDrop::new(File::from_raw_fd(fd)) })
     }
 }
 impl Deref for FileRef {
@@ -57,11 +57,6 @@ impl Deref for FileRef {
 impl DerefMut for FileRef {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-impl Drop for FileRef {
-    fn drop(&mut self) {
-        std::mem::forget(std::mem::replace(&mut self.0, unsafe { File::from_raw_fd(0) }))
     }
 }
 
