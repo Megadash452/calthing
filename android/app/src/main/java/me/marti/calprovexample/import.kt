@@ -219,8 +219,9 @@ fun MainActivity.createFiles(fileName: String, color: Color, id: Long? = null) {
 
     // Create file in App's internal storage
     try {
-        if (!this.internalFile(fileName).createNewFile())
-            throw FileAlreadyExistsException(this.internalFile(fileName))
+        val file = this.internalFile(fileName).toPath()
+        java.nio.file.Files.createDirectories(file.parent)
+        java.nio.file.Files.createFile(file)
     } catch (e: Exception) {
         throw Exception("Error creating file in Internal Directory: $e")
     }

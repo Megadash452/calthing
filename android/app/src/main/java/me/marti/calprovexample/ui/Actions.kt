@@ -199,14 +199,13 @@ fun EditCalendarAction(
 
 /** The dialog for when the user wants to import an existing Calendar from the device to be synced.
  * @param submit Function that runs when the "Select" button is clicked.
- * Argument is a list of Calendar IDs.
- * User can select multiple calendars, aka a `List<Long>`
+ * The argument is a list of Calendars the user has selected to import.
  * [close] is always called before *submitting*. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<String, ExternalUserCalendar>, close: () -> Unit, submit: (List<Long>) -> Unit) {
+fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<String, ExternalUserCalendar>, close: () -> Unit, submit: (List<ExternalUserCalendar>) -> Unit) {
     // The IDs of the Calendars selected to be copied
-    val selectedIds = remember { mutableStateMapOf<Long, Unit>() }
+    val selectedCals = remember { mutableStateMapOf<Long, ExternalUserCalendar>() }
 
     AlertDialog(
         modifier = modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.75).dp),
@@ -216,9 +215,9 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
             TextButton(onClick = close) { Text("Cancel") }
         },
         confirmButton = {
-            FilledTonalButton(enabled = !selectedIds.isEmpty(), onClick = {
+            FilledTonalButton(enabled = !selectedCals.isEmpty(), onClick = {
                 close()
-                submit(selectedIds.toList().map { (id, _) -> id  })
+                submit(selectedCals.toList().map { (_, cal) -> cal  })
             }) { Text("Select") }
         },
         text = if (calendars.isEmpty()) {{
@@ -230,7 +229,7 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
                         // Calendars that have importedTo set cannot be selected
                         val selectable = group.filter { cal -> cal.importedTo == null }
                         // Mapping of whether some, all, or none of the group's calendars are in selectedIds.
-                        val selected = selectable.map { cal -> selectedIds.containsKey(cal.id) }
+                        val selected = selectable.map { cal -> selectedCals.containsKey(cal.id) }
                         TriStateCheckbox(
                             modifier = Modifier.size(24.dp),
                             enabled = selectable.isNotEmpty(), // There are no items to select
@@ -246,22 +245,22 @@ fun CopyCalendarAction(modifier: Modifier = Modifier, calendars: GroupedList<Str
                             onClick = {
                                 // Deselect all if all are selected
                                 if (selected.all { it })
-                                    selectable.forEach { cal -> selectedIds.remove(cal.id) }
+                                    selectable.forEach { cal -> selectedCals.remove(cal.id) }
                                 // Otherwise, Select all.
                                 else
-                                    selectable.forEach { cal -> selectedIds[cal.id] = Unit }
+                                    selectable.forEach { cal -> selectedCals[cal.id] = cal }
                             }
                         )
                     }) }
                     this.items(group) { cal ->
                         Calendar(
                             color = cal.color, name = cal.name,
-                            selected = selectedIds.containsKey(cal.id),
+                            selected = selectedCals.containsKey(cal.id),
                             importedTo = cal.importedTo,
                             onClick = {
                                 // Toggle the checkbox
-                                if (selectedIds.remove(cal.id) == null)
-                                    selectedIds[cal.id] = Unit
+                                if (selectedCals.remove(cal.id) == null)
+                                    selectedCals[cal.id] = cal
                             }
                         )
                     }
@@ -336,7 +335,7 @@ private fun Calendar(modifier: Modifier = Modifier, color: Color, name: String, 
 fun ImportFileExistsAction(
     modifier: Modifier = Modifier,
     name: String,
-    rename: (String, Color) -> Unit,
+    rename: (String) -> Unit,
     overwrite: () -> Unit,
     close: () -> Unit
 ) {
@@ -355,9 +354,9 @@ fun ImportFileExistsAction(
                 NameCheck({ new -> new != name }, "Name must be different"),
             ),
             close = { isRename = false },
-            submit = { newName, color ->
+            submit = { newName, _ ->
                 close()
-                rename(newName, color)
+                rename(newName)
             },
         )
     } else { // Initial dialog
@@ -519,7 +518,7 @@ private fun ImportFilePreview() {
     CalProvExampleTheme {
         ImportFileExistsAction(
             name = "MyCalendar",
-            rename = { _, _ -> }, overwrite = {},
+            rename = { _ -> }, overwrite = {},
             close = {}
         )
     }

@@ -52,7 +52,7 @@ import me.marti.calprovexample.calendar.AllData
 import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.calendar.UserCalendarListItem
-import me.marti.calprovexample.calendar.copyFromDevice
+import me.marti.calprovexample.calendar.copyExternalCalendars
 import me.marti.calprovexample.calendar.deleteCalendarByName
 import me.marti.calprovexample.calendar.editCalendar
 import me.marti.calprovexample.calendar.externalUserCalendars
@@ -229,7 +229,7 @@ class MainActivity : ComponentActivity() {
                                                         AsyncDialog.showDialog { close ->
                                                             ImportFileExistsAction(
                                                                 name = data.name,
-                                                                rename = { newName, _ -> this@MainActivity.finishImportRename(data.fileUri, "$newName.ics") },
+                                                                rename = { newName-> this@MainActivity.finishImportRename(data.fileUri, "$newName.ics") },
                                                                 overwrite = { this@MainActivity.finishImportOverwrite(data.fileUri) },
                                                                 close = close
                                                             )
@@ -246,7 +246,11 @@ class MainActivity : ComponentActivity() {
                                     calendars = userCalendars.value,
                                     hasSelectedDir = syncDir.value != null,
                                     selectDirClick = { this@MainActivity.selectSyncDir() },
-                                    calPermsClick =  { userCalendars.value = MutableCalendarsList(this@MainActivity) },
+                                    calPermsClick = {
+                                        this@MainActivity.calendarPermission.run {
+                                            userCalendars.value = MutableCalendarsList(this@MainActivity)
+                                        }
+                                    },
                                     syncCalendarSwitch = { id, sync -> userCalendars.value?.edit(id) { it.copy(sync = sync) } },
                                     editCalendar = { id, name, color -> openAction = Actions.EditCalendar(id, name, color) },
                                     deleteCalendar = { name -> this@MainActivity.deleteCalendar(name, asyncScope, snackBarState) }
@@ -304,7 +308,7 @@ class MainActivity : ComponentActivity() {
                                             )
                                         }.groupBy { cal -> cal.accountName },
                                         close = { openAction = null },
-                                        submit = { ids -> userCalendars.value?.copyFromExternal(ids, asyncScope) }
+                                        submit = { selectedCals -> userCalendars.value?.copyFromExternal(selectedCals, asyncScope) }
                                     )
                                 }
                             }
@@ -422,15 +426,44 @@ class MutableCalendarsList(
     override val size: Int
         get() = this.list.size
 
-    /**  */
-    internal fun copyFromExternal(ids: List<Long>, asyncScope: CoroutineScope) {
+    /** Import a list of Calendars *not owned by this app* that the user chose.
+     *
+     * This Function first checks that none of the Calendars have conflicting names with Calendars already in the list.
+     * If they do, a **dialog** will prompt the user whether they want to ***rename, overwrite, or cancel import***. */
+    internal fun copyFromExternal(calendars: List<ExternalUserCalendar>, asyncScope: CoroutineScope) {
         asyncScope.launch {
             activity.asyncCalendarPermission.runWithMessage("Copying calendars") {
-                this.copyFromDevice(ids)?.let { newCals ->
-                    // Create files
+                // The IDs of the calendars to copy
+                val copyCalendars = calendars
+                    .mapNotNull { newCal ->
+                        // Check whether any of the calendars the user selected would have conflict with another calendar
+                        if (this@MutableCalendarsList.find { cal -> cal.name == newCal.name } == null)
+                            return@mapNotNull newCal // No conflict
+
+                        // In case of conflict, ask user whether to rename, overwrite, or don't import at all
+                        var finalName: String? = null
+                        AsyncDialog.showDialog { close ->
+                            ImportFileExistsAction(
+                                name = newCal.name,
+                                rename = { newName -> finalName = newName },
+                                overwrite = {
+                                    // TODO: could show snack-bar with undo action
+                                    this@MutableCalendarsList.remove(newCal.name)
+                                    finalName = newCal.name
+                                },
+                                close = close
+                            )
+                        }
+
+                        // The calendar is omitted when finalName is NULL because the user canceled the import
+                        finalName?.let { name -> newCal.copy(name = name) }
+                        // FIXME: fix visual bug that only adds calendars after all conflicts are resolved, by putting everything in a single for loop
+                    }
+
+                this.copyExternalCalendars(copyCalendars)?.let { newCals ->
+                    // Create the files
                     for (cal in newCals) {
-                        // TODO: check if newCal name causes conflict with other calendars
-                        activity.createFiles("${cal.name}.ics", cal.color)
+                        activity.createFiles("${cal.name}.ics", cal.color, cal.id)
                         writeCalendarDataToFile(cal.name)
                     }
                     // Add the Calendars to the list
@@ -504,7 +537,7 @@ class MutableCalendarsList(
     @Throws(IndexOutOfBoundsException::class)
     fun add(index: Int, element: CalendarData) {
         val name = element.name
-        val fileName = "$$name.ics"
+        val fileName = "$name.ics"
 
         // Check if name is unique
         if (this.indexOfFirst { e -> e.name == name } != -1)
@@ -557,16 +590,7 @@ class MutableCalendarsList(
         val name = this[index].name
         val fileName = "$name.ics"
 
-        // Copy internal file to recycle bin before deleting everything
-        try {
-            activity.internalFile(fileName)
-                .copyTo(Path("${activity.filesDir}/deleted/calendars/$fileName"), true)
-        } catch (e: Exception) {
-            throw IOException("Error copying \"$fileName\" to \"deleted/calendars\" directory: $e")
-        }
-
-        // Delete the Calendar files
-        activity.deleteFiles(fileName)
+        // Put this first in case there is a bug where the file doesn't exist, the entry will no longer be showed.
         // Delete the Calendar from the Content Provider
         if (activity.calendarPermission.hasPermission())
             activity.calendarPermission.run {
@@ -575,6 +599,17 @@ class MutableCalendarsList(
             }
         else
             throw Exception("Missing permission to delete Calendar from Content Provider")
+
+        // Copy internal file to recycle bin before deleting everything
+        try {
+            activity.internalFile(fileName)
+                .copyTo(Path("${activity.filesDir}/deleted/calendars/$fileName"), true)
+        } catch (e: Exception) {
+            throw IOException("Error copying \"$fileName\" to \"deleted/calendars\" directory: $e")
+        }
+        // Delete the Calendar files
+        activity.deleteFiles(fileName)
+
         // Delete the Calendar from the list
         return this.list.removeAt(index)
     }
@@ -582,7 +617,7 @@ class MutableCalendarsList(
     /** Moves a file that was moved to the "Recycle Bin" back to its respective directories,
      * and adds it back to the Content Provider and the calendars list.
      * @throws Exception if an error occurs while working with the files or Content Provider. */
-    fun restore(name: String) {
+    internal fun restore(name: String) {
         val fileName = "$name.ics"
         val syncDir = activity.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
         val deleted = Path("${activity.filesDir.path}/deleted/calendars/$fileName")

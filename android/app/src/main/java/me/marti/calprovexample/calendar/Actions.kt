@@ -49,6 +49,17 @@ class ExternalUserCalendar(
 ) : UserCalendarListItem(id, name, accountName, color) {
     constructor(parent: UserCalendarListItem, importedTo: String?)
         : this(parent.id, parent.name, parent.accountName, parent.color, importedTo)
+
+    /** Create a copy of a Calendar object to edit some of its fields. */
+    fun copy(id: Long? = null, name: String? = null, accountName: String? = null, color: Color? = null, importedTo: String? = null): ExternalUserCalendar {
+        return ExternalUserCalendar(
+            id = id ?: this.id,
+            name = name ?: this.name,
+            accountName = accountName ?: this.accountName,
+            color = color ?: this.color,
+            importedTo = importedTo ?: this.importedTo
+        )
+    }
 }
 /** Display data about a calendar that the user imported from the system to sync with this App. */
 class InternalUserCalendar(
@@ -246,7 +257,7 @@ fun CalendarPermissionScope.deleteCalendar(id: Long): Boolean {
  * This works because calendar names are unique. */
 fun CalendarPermissionScope.deleteCalendarByName(name: String): Boolean {
     return this.context.contentResolver.delete(
-        CalendarContract.Calendars.CONTENT_URI,
+        CalendarContract.Calendars.CONTENT_URI.asSyncAdapter(this.context.getString(R.string.account_name)),
         "${CalendarContract.Calendars.CALENDAR_DISPLAY_NAME} = ?",
         arrayOf(name)
     ).run {
@@ -259,55 +270,66 @@ fun CalendarPermissionScope.deleteCalendarByName(name: String): Boolean {
  *
  *  Some data from the copied calendar is changed (like `ACCOUNT_NAME`) before it is inserted into the *New Calendar*.
  *
- * @returns A list of calendar data of the Calendars that were successfully added.
+ *  @param calendars The list of Calendars external to the app that will be imported.
+ *
+ *  Each calendar object could have some changed data since it was obtained in [externalUserCalendars]
+ *  (e.g. [copyFromExternal][me.marti.calprovexample.ui.MutableCalendarsList.copyFromExternal] could call this function with a modified list).
+ *  For this reason, some data (the fields that [ExternalUserCalendar] has) will not be copied from the Calendar in the Content Provider,
+ *  but instead will be read from the [ExternalUserCalendar] object directly.
+ *
+ *  @returns A list of calendar data of the Calendars that were successfully added.
  *          **`Null`** if there was an error setting up the contentProvider cursor. */
-fun CalendarPermissionScope.copyFromDevice(ids: List<Long>): List<InternalUserCalendar>? {
+fun CalendarPermissionScope.copyExternalCalendars(calendars: List<ExternalUserCalendar>): List<InternalUserCalendar>? {
     val accountName = this.context.getString(R.string.account_name)
     // List of Calendars that were successfully copied (even if there were errors in copying other things, like Events).
     val successCals = mutableListOf<InternalUserCalendar>()
     val client = this.context.contentResolver.acquireContentProviderClient(CalendarContract.CONTENT_URI) ?: return null
-    val calendars = client.getCursor<CopyCalendarsProjection>(
+    val calendarsCursor = client.getCursor<CopyCalendarsProjection>(
         CalendarContract.Calendars.CONTENT_URI,
         // Select the calendars that are in the id list
         /*  Using selectionArgs to pass the IDs didn't work.
         *   Tried this but also didn't work: https://stackoverflow.com/questions/7418849/in-clause-and-placeholders.
         *   That said, SQL injection shouldn't be possible because the resulting string will only contain decimal digit characters. */
-        selection = "${CalendarContract.Calendars._ID} IN (${ids.joinToString(separator = ",")})",
+        selection = "${CalendarContract.Calendars._ID} IN (${calendars.map { cal -> cal.id }.joinToString(separator = ",")})",
     ) ?: run {
         client.close()
         return null
     }
 
-    if (calendars.count != ids.size) {
-        Log.e("copyFromDevice", "Invalid ID count. Passed in ${ids.size} IDs, but cursor only has ${calendars.count} rows.")
-        calendars.close()
+    if (calendarsCursor.count != calendars.size) {
+        Log.e("copyFromDevice", "Invalid ID count. Passed in ${calendars.size} IDs, but cursor only has ${calendarsCursor.count} rows.")
+        calendarsCursor.close()
         client.close()
         return null
     }
 
     // Copy each calendar selected with the cursor
-    while (calendars.moveToNext()) {
+    while (calendarsCursor.moveToNext()) {
         // -- COPY CALENDAR
         // Load the data about this calendar to memory
-        val data = calendars.loadRowData<CopyCalendarsProjection>().apply {
+        val data = calendarsCursor.loadRowData<CopyCalendarsProjection>().apply {
+            val calData = calendars.find { cal -> cal.id == this.getAsLong(CopyCalendarsProjection.ID.column) }!!
+
             this.remove(CopyCalendarsProjection.ID.column)
+            this.put(CopyCalendarsProjection.DISPLAY_NAME.column, calData.name)
+            this.put(CopyCalendarsProjection.COLOR.column, calData.color.toColor().toArgb())
             this.put(CalendarContract.Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL)
             this.put(CalendarContract.Calendars.ACCOUNT_NAME, accountName)
             this.put(CalendarContract.Calendars.OWNER_ACCOUNT, accountName)
             // The calendar starts as not synced, then the user can choose whether to sync it or not.
             this.put(CalendarContract.Calendars.SYNC_EVENTS, 0)
             // Store which (if any) calendar this one was created from so that calendar can't be imported again.
-            this.put(IMPORTED_FROM_COLUMN, calendars.getLong(CopyCalendarsProjection.ID.ordinal))
+            this.put(IMPORTED_FROM_COLUMN, calendarsCursor.getLong(CopyCalendarsProjection.ID.ordinal))
             // this.put(CalendarContract.Calendars._SYNC_ID, ???)
         }
         // The ID of the Calendar that the data was copied From
-        val oldCalId = calendars.getString(CopyCalendarsProjection.ID.ordinal)
+        val oldCalId = calendarsCursor.getString(CopyCalendarsProjection.ID.ordinal)
         // Write the calendar data to the content provider
         val calId = client.insert(CalendarContract.Calendars.CONTENT_URI.asSyncAdapter(accountName), data)
             ?.let { uri -> ContentUris.parseId(uri) }
-            ?.also { newCal ->
+            ?.also { newCalId ->
                 successCals.add(InternalUserCalendar(
-                    id = newCal,
+                    id = newCalId,
                     name = data.getAsString(CopyCalendarsProjection.DISPLAY_NAME.column),
                     accountName = accountName,
                     color = Color(data.getAsInteger(CopyCalendarsProjection.COLOR.column)),
@@ -320,17 +342,17 @@ fun CalendarPermissionScope.copyFromDevice(ids: List<Long>): List<InternalUserCa
             continue
         }
 
-        val events = this.context.getCursor<CopyEventsProjection>(
+        val eventsCursor = this.context.getCursor<CopyEventsProjection>(
             CalendarContract.Events.CONTENT_URI,
             "(${CalendarContract.Events.CALENDAR_ID} = ?)", arrayOf(oldCalId.toString())
         ) ?: continue
 
-        while (events.moveToNext()) {
-            val oldEventId = events.getString(CopyCalendarsProjection.ID.ordinal)
+        while (eventsCursor.moveToNext()) {
+            val oldEventId = eventsCursor.getString(CopyCalendarsProjection.ID.ordinal)
             // -- COPY EVENTS from the copied Calendar
             val eventId = client.insert(
                 CalendarContract.Events.CONTENT_URI.asSyncAdapter(accountName),
-                events.loadRowData<CopyEventsProjection>().apply {
+                eventsCursor.loadRowData<CopyEventsProjection>().apply {
                     this.remove(CopyEventsProjection.ID.column)
                     this.put(CalendarContract.Events.CALENDAR_ID, calId)
                     // TODO: If event is an exception, find the ID of the copied event for which this will become an exception, and write it to ORIGINAL_ID
@@ -342,37 +364,37 @@ fun CalendarPermissionScope.copyFromDevice(ids: List<Long>): List<InternalUserCa
             }
 
             // -- COPY REMINDERS from the copied Event
-            val reminders = this.context.getCursor<CopyRemindersProjection>(
+            val remindersCursor = this.context.getCursor<CopyRemindersProjection>(
                 CalendarContract.Reminders.CONTENT_URI,
                 "(${CalendarContract.Reminders.EVENT_ID} = ?)", arrayOf(oldEventId.toString())
             ) ?: continue
-            while (reminders.moveToNext())
+            while (remindersCursor.moveToNext())
                 client.insert(
                     CalendarContract.Reminders.CONTENT_URI.asSyncAdapter(accountName),
-                    reminders.loadRowData<CopyRemindersProjection>().apply {
+                    remindersCursor.loadRowData<CopyRemindersProjection>().apply {
                         this.put(CalendarContract.Reminders.EVENT_ID, eventId)
                     }
                 )
-            reminders.close()
+            remindersCursor.close()
 
             // -- COPY ATTENDEES from the copied Event
-            val attendees = this.context.getCursor<CopyAttendeesProjection>(
+            val attendeesCursor = this.context.getCursor<CopyAttendeesProjection>(
                 CalendarContract.Attendees.CONTENT_URI,
                 "(${CalendarContract.Attendees.EVENT_ID} = ?)", arrayOf(oldEventId.toString())
             ) ?: continue
-            while (attendees.moveToNext())
+            while (attendeesCursor.moveToNext())
                 client.insert(
                     CalendarContract.Attendees.CONTENT_URI.asSyncAdapter(accountName),
-                    attendees.loadRowData<CopyAttendeesProjection>().apply {
+                    attendeesCursor.loadRowData<CopyAttendeesProjection>().apply {
                         this.put(CalendarContract.Attendees.EVENT_ID, eventId)
                     }
                 )
-            attendees.close()
+            attendeesCursor.close()
         }
-        events.close()
+        eventsCursor.close()
     }
 
-    calendars.close()
+    calendarsCursor.close()
     client.close()
     return successCals
 }
