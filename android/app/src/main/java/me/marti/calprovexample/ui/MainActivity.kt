@@ -25,13 +25,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
-import androidx.compose.runtime.toMutableStateList
 import androidx.core.net.toUri
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -58,16 +58,20 @@ import me.marti.calprovexample.calendar.editCalendar
 import me.marti.calprovexample.calendar.externalUserCalendars
 import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
-import me.marti.calprovexample.calendar.toggleSync
 import me.marti.calprovexample.createFiles
 import me.marti.calprovexample.deleteFiles
+import me.marti.calprovexample.externalFile
 import me.marti.calprovexample.finishImportOverwrite
 import me.marti.calprovexample.finishImportRename
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.importFiles
-import me.marti.calprovexample.join
+import me.marti.calprovexample.internalFile
 import me.marti.calprovexample.openFd
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
+import me.marti.calprovexample.writeCalendarDataToFile
+import me.marti.calprovexample.writeColorToCalendarFile
+import me.marti.calprovexample.writeFileDataToCalendar
+import java.io.IOException
 import java.io.File as Path
 
 const val DEFAULT_CALENDAR_COLOR = 0x68acef
@@ -75,7 +79,8 @@ const val CALENDAR_DOCUMENT_MIME_TYPE = "text/calendar"
 
 class MainActivity : ComponentActivity() {
     val calendarPermission = CalendarPermission(this)
-    private val asyncCalendarPermission = AsyncCalendarPermission(this)
+    val asyncCalendarPermission = AsyncCalendarPermission(this)
+    private val snackBarState = SnackbarHostState()
 
     // -- Hoisted States for compose
     /** The path/URI where the synced .ics files are stored in shared storage.
@@ -94,7 +99,7 @@ class MainActivity : ComponentActivity() {
      *
      * Since the list is *`MutableState`*, to edit data of an element it must be **replaced** with another (use [InternalUserCalendar.copy]). */
     @SuppressLint("MutableCollectionMutableState")
-    var userCalendars: MutableState<SnapshotStateList<InternalUserCalendar>?> = mutableStateOf(null)
+    var userCalendars: MutableState<MutableCalendarsList?> = mutableStateOf(null)
 
     /** Channel for sending messages between *[dirSelectIntent]* and the UI.
      *  true if the user selected the directory.
@@ -125,7 +130,11 @@ class MainActivity : ComponentActivity() {
             // TODO: also import files in syncDir (use user to resolve conflicts too)
             this.calendarPermission.run {
                 for (cal in this.internalUserCalendars()!!) {
-                    this@MainActivity.createFiles("${cal.name}.ics", cal.color, cal.id)
+                    try {
+                        this@MainActivity.createFiles("${cal.name}.ics", cal.color, cal.id)
+                    } catch (e: Exception) {
+                        Log.e("dirSelectIntent", "Error creating files for \"${cal.name}.ics\" in newly-selected syncDir")
+                    }
                 }
             }
         else
@@ -164,7 +173,7 @@ class MainActivity : ComponentActivity() {
 
         // Populate the list of synced calendars, but only if the user had allowed it before.
         if (this.calendarPermission.hasPermission())
-            this.initUserCalendars()
+            this.userCalendars.value = MutableCalendarsList(this)
 
         this.setContent {
             CalProvExampleTheme {
@@ -175,7 +184,6 @@ class MainActivity : ComponentActivity() {
                         /** Open a secondary item in this screen, such as the FAB or a dialog */
                         var openAction: Actions? by rememberSaveable { mutableStateOf(null) }
                         val asyncScope = rememberCoroutineScope()
-                        val snackBarState = remember { SnackbarHostState() }
 
                         MainContent(
                             navigateTo = { dest -> navController.navigate(dest.route) },
@@ -238,8 +246,8 @@ class MainActivity : ComponentActivity() {
                                     calendars = userCalendars.value,
                                     hasSelectedDir = syncDir.value != null,
                                     selectDirClick = { this@MainActivity.selectSyncDir() },
-                                    calPermsClick =  { this@MainActivity.initUserCalendars() },
-                                    syncCalendarSwitch = { id, sync -> this@MainActivity.toggleSyncCalendar(id, sync) },
+                                    calPermsClick =  { userCalendars.value = MutableCalendarsList(this@MainActivity) },
+                                    syncCalendarSwitch = { id, sync -> userCalendars.value?.edit(id) { it.copy(sync = sync) } },
                                     editCalendar = { id, name, color -> openAction = Actions.EditCalendar(id, name, color) },
                                     deleteCalendar = { name -> this@MainActivity.deleteCalendar(name, asyncScope, snackBarState) }
                                 )
@@ -255,7 +263,7 @@ class MainActivity : ComponentActivity() {
                             // TODO: don't allow user to use a name of a calendar that already exists
                             Actions.NewCalendar -> NewCalendarAction(
                                 close = { openAction = null },
-                                submit = { name, color -> this@MainActivity.newCalendar(name, color) }
+                                submit = { name, color -> userCalendars.value?.add(CalendarData(name, color)) }
                             )
                             is Actions.EditCalendar -> {
                                 val data = openAction as Actions.EditCalendar
@@ -265,7 +273,7 @@ class MainActivity : ComponentActivity() {
                                     color = data.color,
                                     name = data.name,
                                     close = { openAction = null },
-                                    submit = { newName, newColor -> this@MainActivity.editCalendar(data.id, newName, newColor) }
+                                    submit = { newName, newColor -> userCalendars.value?.edit(data.id) { it.copy(name = newName, color = newColor) } }
                                 )
                             }
                             Actions.CopyCalendar -> {
@@ -296,7 +304,7 @@ class MainActivity : ComponentActivity() {
                                             )
                                         }.groupBy { cal -> cal.accountName },
                                         close = { openAction = null },
-                                        submit = { ids -> this@MainActivity.copyCalendars(ids, asyncScope) }
+                                        submit = { ids -> userCalendars.value?.copyFromExternal(ids, asyncScope) }
                                     )
                                 }
                             }
@@ -337,106 +345,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun initUserCalendars() {
-        this.calendarPermission.run {
-            this.internalUserCalendars()?.also { cals ->
-                // Group calendars by Account Name
-                userCalendars.value = cals.toMutableStateList()
-            } ?: run {
-                println("Couldn't get user calendars")
-            }
-        }
-    }
-
-    private fun newCalendar(name: String, color: Color) {
-        this.calendarPermission.run {
-            this.newCalendar(name, color)?.let { newCal ->
-                // Add the Calendar to the list
-                userCalendars.value?.add(newCal)
-            } ?: return@run
-
-            this@MainActivity.createFiles("$name.ics", color)
-        }
-    }
-
-    private fun editCalendar(id: Long, newName: String, newColor: Color) {
-        this.calendarPermission.run {
-            if (this.editCalendar(id, newName, newColor)) {
-                userCalendars.value?.let { calendars ->
-                    // ?: throw Exception("Could not find Calendar with ID=$id in `userCalendars`")
-                    val i = calendars.indexOfFirst { cal -> cal.id == id }
-                    calendars[i] = calendars[i].copy(
-                        name = newName,
-                        color = newColor
-                    )
-                }
-
-                // TODO: rename file and change color in the file
-            }
-        }
-    }
-
-    private fun toggleSyncCalendar(id: Long, sync: Boolean) {
-        this.calendarPermission.run {
-            if (this.toggleSync(id, sync)) {
-                userCalendars.value?.let { calendars ->
-                    val i = calendars.indexOfFirst { cal -> cal.id == id }
-                    calendars[i] = calendars[i].copy(sync = sync)
-                }
-            }
-        }
-    }
 
     /** Delete the calendar and show a **snack-bar** that can undo the deletion.
      *
      * Moves the deleted calendar to the `"deleted"` directory (like a recycle bin) before fully deleting it.
      * The file is only fully deleted after the snack-bar is dismissed or app is reopened. */
     private fun deleteCalendar(name: String, asyncScope: CoroutineScope, snackBarState: SnackbarHostState) {
-        val calendars = userCalendars.value ?: run {
+        val calendars = this.userCalendars.value ?: run {
             Log.e("UI deleteCalendar", "Trying to delete Calendar when 'userCalendars' is NULL")
             return
         }
-        val syncDir = this.syncDir.value ?: run {
-            Log.e("UI deleteCalendar", "No syncDir :(")
-            return
-        }
-        val fileName = "$name.ics"
-        val msg = "Calendar deleted"
 
-        fun Path.copyTo(path: Path): Path? {
-            return try {
-                java.io.File("${this@MainActivity.filesDir}/calendars/$fileName")
-                    .copyTo(path, true)
-            } catch (e: Exception) {
-                Log.e("UI deleteCalendar", "Error copying \"${this.name}\" to \"$path\" directory: $e")
-                null
-            }
-        }
-
-        // Copy internal file to recycle bin before deleting everything
-        val deleted = Path("${this.filesDir}/calendars/$fileName")
-            .copyTo(Path("${this.filesDir}/deleted/calendars/$fileName"))
-            ?: return
-        // Delete the Calendar from the list
-        val i = calendars.indexOfFirst { cal -> cal.name == name }
-        if (i == -1) {
-            Log.e("UI deleteCalendar", "Trying to delete Calendar that doesn't exist")
-            return
-        }
-        calendars.removeAt(i)
-        // Delete the Calendar files
-        this.deleteFiles(fileName)
+        calendars.removeAt(calendars.indexOfFirst { cal -> cal.name == name })
 
         asyncScope.launch {
-            // Delete the Calendar from the Content Provider
-            this@MainActivity.asyncCalendarPermission.run {
-                this.deleteCalendarByName(name)
-            }?.run {
-                Log.w("UI deleteCalendar", "Calendar \"$name\" not removed from Content Provider.")
-            } ?: run {
-                Log.e("UI deleteCalendar", "Calendar permission denied")
-                return@launch
-            }
+            val msg = "Calendar deleted"
 
             // If there is already a 'Deleted Calendar' snack-bar, dismiss it to show this one.
             snackBarState.currentSnackbarData?.let { current ->
@@ -450,48 +373,17 @@ class MainActivity : ComponentActivity() {
                 duration = SnackbarDuration.Short
             )) {
                 // Restore Calendar when user presses "Undo"
-                SnackbarResult.ActionPerformed -> {
-                    // Copy file internal dir
-                    deleted.copyTo(Path("${this@MainActivity.filesDir}/calendars/$fileName"))
-                        ?: return@launch
-                    // Copy file to external dir
-                    DocumentsContract.copyDocument(this@MainActivity.contentResolver,
-                        deleted.toUri(),
-                        syncDir.join("calendars/$fileName")!!,
-                    )
-                    // File in recycle bin is no longer needed
-                    deleted.delete()
-                    // Create entry in Content Provider, and parse the file's content
-                    // TODO: parse content
-                    this@MainActivity.asyncCalendarPermission.run {
-                        this.newCalendar(name, Color(DEFAULT_CALENDAR_COLOR))?.let { newCal ->
-                            // Add the Calendar to the list
-                            userCalendars.value?.add(newCal)
-                        } ?: return@run
-                    }
-                }
+                SnackbarResult.ActionPerformed -> calendars.restore(name)
                 // Fully delete Calendar by deleting file in recycle bin
                 SnackbarResult.Dismissed -> {
                     try {
-                        deleted.delete()
+                        Path("${this@MainActivity.filesDir.path}/deleted/calendars/$name.ics").delete()
                     } catch (e: Exception) {
                         false
                     }.let {
                         if (!it)
                             Log.e("deleteFiles", "Error deleting file in internal directory.")
                     }
-                }
-            }
-        }
-    }
-
-    private fun copyCalendars(ids: List<Long>, asyncScope: CoroutineScope) {
-        asyncScope.launch {
-            this@MainActivity.asyncCalendarPermission.runWithMessage("Copying calendars") {
-                // kotlinx.coroutines.delay(500)
-                this.copyFromDevice(ids)?.let { newCals ->
-                    // Add the Calendars to the list
-                    userCalendars.value?.addAll(newCals)
                 }
             }
         }
@@ -505,4 +397,228 @@ class MainActivity : ComponentActivity() {
         // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
         this.dirSelectIntent.launch(null)
     }
+}
+
+data class CalendarData(
+    val name: String,
+    val color: Color,
+)
+
+class MutableCalendarsList(
+    private val activity: MainActivity,
+): List<InternalUserCalendar> {
+    private val list: SnapshotStateList<InternalUserCalendar> = mutableStateListOf()
+    init {
+        if (activity.calendarPermission.hasPermission())
+            activity.calendarPermission.run {
+                this.internalUserCalendars()?.also { cals ->
+                    this@MutableCalendarsList.list.addAll(cals)
+                } ?: Log.e("MutableCalendarsList", "Error querying Content Provider for Local Calendars")
+            }
+        else
+            Log.e("MutableCalendarsList", "Missing Calendar permission to initialize User Calendars list")
+    }
+
+    override val size: Int
+        get() = this.list.size
+
+    /**  */
+    internal fun copyFromExternal(ids: List<Long>, asyncScope: CoroutineScope) {
+        asyncScope.launch {
+            activity.asyncCalendarPermission.runWithMessage("Copying calendars") {
+                this.copyFromDevice(ids)?.let { newCals ->
+                    // Create files
+                    for (cal in newCals) {
+                        // TODO: check if newCal name causes conflict with other calendars
+                        activity.createFiles("${cal.name}.ics", cal.color)
+                        writeCalendarDataToFile(cal.name)
+                    }
+                    // Add the Calendars to the list
+                    this@MutableCalendarsList.list.addAll(newCals)
+                } ?: throw Exception("Error copying calendars ")
+            }
+        }
+    }
+
+    override fun get(index: Int): InternalUserCalendar = this.list[index]
+
+    // operator fun set(index: Int, element: CalendarData): CalendarData {
+    // }
+
+    fun edit(id: Long, editor: (InternalUserCalendar) -> InternalUserCalendar) {
+        this.edit(this.indexOfFirst { it.id == id }, editor)
+    }
+    fun edit(index: Int, editor: (InternalUserCalendar) -> InternalUserCalendar) {
+        val old = this[index]
+        val new = editor(old)
+        val syncDir = activity.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
+
+        // Check if name is unique
+        if (this.indexOfFirst { e -> e.name == new.name } != -1)
+            throw Exception("An element with name \"${new.name}\" already exists in the list")
+
+        if (old.id != new.id)
+            throw Exception("Can't manually change the ID of a Calendar")
+
+        // Rename files
+        if (old.name != new.name) {
+            // Rename internal file
+            val file = activity.internalFile("${old.name}.ics")
+            java.nio.file.Files.move(
+                file.toPath(),
+                file.resolveSibling(new.name).toPath()
+            )
+            // Rename external file
+            DocumentsContract.renameDocument(activity.contentResolver,
+                externalFile(syncDir, "${old.name}.ics"), new.name
+            ) ?: throw Exception("Error renaming file in external directory from \"${old.name}\" to \"${new.name}\"")
+        }
+        // Change color in files
+        if (old.color != new.color)
+            writeColorToCalendarFile(old.name, new.color)
+
+        // Change data in the Content Provider
+        if (activity.calendarPermission.hasPermission())
+            activity.calendarPermission.run {
+                if (!this.editCalendar(old.id, new.name, new.color, new.sync))
+                    throw Exception("Error editing Calendar in Content Provider")
+            }
+        else
+            throw Exception("Missing permission to create Calendar in Content Provider")
+
+        // Change data in the list
+        this.list[index] = new
+    }
+
+    // fun addAll(elements: Collection<CalendarData>): Boolean = elements.all { this.add(it) }
+    // fun addAll(index: Int, elements: Collection<CalendarData>): Boolean {
+    //     var i = index
+    //     return elements.all { element -> this.add(i++, element); true }
+    // }
+    fun add(element: CalendarData): Boolean { this.add(this.size, element); return true }
+    /** Inserts an [element] into the list at some [index].
+     * @throws IndexOutOfBoundsException when [index] falls outside the range *0 <= i <= [size]*.
+     * Note that when index == size is equivalent to calling [add] (element), but not if index > size.
+     * @throws Exception if the [element] could not be added because of some internal error.
+     * (e.g. creating files, content provider, etc.) */
+    @Throws(IndexOutOfBoundsException::class)
+    fun add(index: Int, element: CalendarData) {
+        val name = element.name
+        val fileName = "$$name.ics"
+
+        // Check if name is unique
+        if (this.indexOfFirst { e -> e.name == name } != -1)
+            throw Exception("An element with name \"$name\" already exists in the list")
+
+        // Create calendar files
+        activity.createFiles(fileName, element.color)
+        // Create entry in Content Provider
+        if (activity.calendarPermission.hasPermission())
+            activity.calendarPermission.run {
+                this.newCalendar(name, element.color)?.let { newCal ->
+                    this@MutableCalendarsList.run {
+        // Add Calendar to the list
+                        if (index > this.size)
+                            throw IndexOutOfBoundsException("Can't insert at index $index in a list with ${this.size} elements")
+                        else if (index == this.size)
+                            this.list.add(newCal)
+                        else
+                            this.list.add(index, newCal)
+                    }
+                } ?: throw Exception("Error creating new calendar")
+            }
+        else
+            throw Exception("Missing permission to create Calendar in Content Provider")
+    }
+
+    // fun removeAll(elements: Collection<InternalUserCalendar>): Boolean = elements.all { this.remove(it) }
+    // fun remove(element: InternalUserCalendar): Boolean =
+    //     try {
+    //         this.removeAt(this.indexOf(element)); true
+    //     } catch (e: Exception) {
+    //         Log.e("MutableCalendarsList", "Error removing element from list: $e"); false
+    //     }
+    fun removeAll(names: Collection<String>) = names.forEach { name -> this.remove(name) }
+    fun remove(name: String) {
+        try {
+            this.removeAt(this.indexOfFirst { it.name == name })
+        } catch (e: Exception) {
+            Log.e("MutableCalendarList", "Error removing element \"$name\" from list: $e")
+        }
+    }
+    fun clear() { this.onEachIndexed { i, _ -> try { this.removeAt(i) } catch (_: Exception) {} } }
+    /** Removes an element from the list that is found at some [index].
+     * @return The element that was removed
+     * @throws IndexOutOfBoundsException when [index] falls outside the range *0 <= i < [size]*
+     * @throws Exception if the element could not be removed because of some internal error.
+     * (e.g. deleting files, content provider, etc.) */
+    @Throws(IndexOutOfBoundsException::class)
+    fun removeAt(index: Int): InternalUserCalendar {
+        val name = this[index].name
+        val fileName = "$name.ics"
+
+        // Copy internal file to recycle bin before deleting everything
+        try {
+            activity.internalFile(fileName)
+                .copyTo(Path("${activity.filesDir}/deleted/calendars/$fileName"), true)
+        } catch (e: Exception) {
+            throw IOException("Error copying \"$fileName\" to \"deleted/calendars\" directory: $e")
+        }
+
+        // Delete the Calendar files
+        activity.deleteFiles(fileName)
+        // Delete the Calendar from the Content Provider
+        if (activity.calendarPermission.hasPermission())
+            activity.calendarPermission.run {
+                if (!this.deleteCalendarByName(name))
+                    throw Exception("Calendar \"$name\" not removed from Content Provider.")
+            }
+        else
+            throw Exception("Missing permission to delete Calendar from Content Provider")
+        // Delete the Calendar from the list
+        return this.list.removeAt(index)
+    }
+
+    /** Moves a file that was moved to the "Recycle Bin" back to its respective directories,
+     * and adds it back to the Content Provider and the calendars list.
+     * @throws Exception if an error occurs while working with the files or Content Provider. */
+    fun restore(name: String) {
+        val fileName = "$name.ics"
+        val syncDir = activity.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
+        val deleted = Path("${activity.filesDir.path}/deleted/calendars/$fileName")
+        if (!deleted.exists())
+            throw Exception("Tried to restore a calendar file that does not exist in the recycle bin")
+
+        // Copy file to internal dir
+        deleted.copyTo(activity.internalFile(fileName))
+        // TODO: what if a calendar with the same name was created while this one was in recycle bin?
+        // Copy file to external dir
+        DocumentsContract.copyDocument(activity.contentResolver,
+            deleted.toUri(),
+            externalFile(syncDir, fileName),
+        )
+        // File in recycle bin is no longer needed
+        deleted.delete()
+        // Create entry in Content Provider,
+        activity.calendarPermission.run {
+            this.newCalendar(name, Color(DEFAULT_CALENDAR_COLOR))?.let { newCal ->
+                // Add the Calendar to the list
+                this@MutableCalendarsList.list.add(newCal)
+            } ?: throw Exception("Error creating new calendar")
+        }
+        // ,and parse the file's content
+        writeFileDataToCalendar(name)
+    }
+
+    override fun isEmpty(): Boolean = this.list.isEmpty()
+
+    override fun iterator(): MutableIterator<InternalUserCalendar> = this.list.iterator()
+    override fun listIterator(): MutableListIterator<InternalUserCalendar> = this.list.listIterator()
+    override fun listIterator(index: Int): MutableListIterator<InternalUserCalendar> = this.list.listIterator(index)
+    override fun subList(fromIndex: Int, toIndex: Int): MutableList<InternalUserCalendar> = throw NotImplementedError("WILL NOT IMPLEMENT")
+    // fun retainAll(elements: Collection<InternalUserCalendar>): Boolean = throw NotImplementedError("WILL NOT IMPLEMENT")
+    override fun lastIndexOf(element: InternalUserCalendar): Int = this.list.lastIndexOf(element)
+    override fun indexOf(element: InternalUserCalendar): Int = this.list.indexOf(element)
+    override fun containsAll(elements: Collection<InternalUserCalendar>): Boolean = this.list.containsAll(elements)
+    override fun contains(element: InternalUserCalendar): Boolean = this.list.contains(element)
 }

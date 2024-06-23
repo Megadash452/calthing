@@ -198,22 +198,14 @@ fun CalendarPermissionScope.newCalendar(name: String, color: Color): InternalUse
     )
 }
 
-fun CalendarPermissionScope.editCalendar(id: Long, newName: String, newColor: Color): Boolean {
+fun CalendarPermissionScope.editCalendar(id: Long, newName: String? = null, newColor: Color? = null, sync: Boolean? = null): Boolean {
     return this.context.updateCalendar(
         id = id,
         accountName = this.context.getString(R.string.account_name),
         values = ContentValues().apply {
-            this.put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, newName)
-            this.put(CalendarContract.Calendars.CALENDAR_COLOR, newColor.toColor().toArgb())
-        }
-    )
-}
-
-fun CalendarPermissionScope.toggleSync(id: Long, sync: Boolean): Boolean {
-    return this.context.updateCalendar(
-        id = id,
-        values = ContentValues().apply {
-            this.put(CalendarContract.Calendars.SYNC_EVENTS, if (sync) 1 else 0)
+            newName?.let { name -> this.put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, name) }
+            newColor?.let { color -> this.put(CalendarContract.Calendars.CALENDAR_COLOR, color.toColor().toArgb()) }
+            sync?.let { sync -> this.put(CalendarContract.Calendars.SYNC_EVENTS, if (sync) 1 else 0) }
         }
     )
 }

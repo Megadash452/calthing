@@ -1,20 +1,14 @@
 package me.marti.calprovexample
 
-import android.content.ContentResolver
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.ParcelFileDescriptor
-import android.provider.DocumentsContract
 import android.util.Log
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
-import androidx.core.database.getStringOrNull
 import androidx.core.net.toUri
 import me.marti.calprovexample.ui.MainActivity
 import java.net.URLEncoder
 import androidx.compose.ui.graphics.Color as ComposeColor
+import java.io.File as Path
 
 /** A **`List<T>`** grouped by values **`G`**, which are members of **`T`**. */
 typealias GroupedList<G, T> = Map<G, List<T>>
@@ -44,52 +38,6 @@ fun <T, R> List<T>.tryMap(transform: (T) -> R?): List<R>? {
     return this.map {
         transform(it) ?: return null
     }
-}
-
-/** Get the file name for an URI that is a file or directory path.
- *
- * Returns `NULL` if the URI is not a path. */
-fun Uri.fileName(): String? {
-    val path = this.lastPathSegment ?: return null
-    // first split the base of the path, then split the other components
-    return path.split(':', limit = 2).last().split('/').last()
-}
-
-fun fileNameWithoutExtension(fileName: String): String {
-    val split = fileName.split('.')
-    return if (split.size == 1)
-    // File name has no extensions
-        fileName
-    else
-        split.dropLast(1).joinToString(".")
-}
-
-/** Determines whether file should go to *`calendars`* or *`contacts`* based on the file's extension.
- * @throws Exception if the extension is for neither calendars or contacts. */
-fun destinationDir(fileName: String): String {
-    val errorMsg = "Invalid fileName \"$fileName\". Should have extension \".ics\" or \".vcard\"."
-    val extension = try {
-        fileName.split('.').last()
-    } catch (e: NoSuchElementException) {
-        throw Exception(errorMsg)
-    }
-
-    return when (extension) {
-        "ics" -> "calendars"
-        "vcard" -> "contacts"
-        else -> throw Exception(errorMsg)
-    }
-}
-
-/** Append *[path] segments* to the end of the Uri path.
- *
- * Returns `NULL` if the URI is not a path. */
-fun Uri.join(path: String): Uri? {
-    if (this.lastPathSegment == null)
-        return null
-    // Prevent adding a second slash to the join point of the paths
-    val slash = if (this.lastPathSegment!!.last() == '/') "" else "/"
-    return "${this}${URLEncoder.encode("$slash$path", "utf-8")}".toUri()
 }
 
 data class Color(
@@ -167,6 +115,52 @@ fun Color(color: androidx.compose.ui.graphics.Color): Color {
     return Color(color.value.toInt())
 }
 
+/** Get the file name for an URI that is a file or directory path.
+ *
+ * Returns `NULL` if the URI is not a path. */
+fun Uri.fileName(): String? {
+    val path = this.lastPathSegment ?: return null
+    // first split the base of the path, then split the other components
+    return path.split(':', limit = 2).last().split('/').last()
+}
+
+fun fileNameWithoutExtension(fileName: String): String {
+    val split = fileName.split('.')
+    return if (split.size == 1)
+    // File name has no extensions
+        fileName
+    else
+        split.dropLast(1).joinToString(".")
+}
+
+/** Determines whether file should go to *`calendars`* or *`contacts`* based on the file's extension.
+ * @throws Exception if the extension is for neither calendars or contacts. */
+fun destinationDir(fileName: String): String {
+    val errorMsg = "Invalid fileName \"$fileName\". Should have extension \".ics\" or \".vcard\"."
+    val extension = try {
+        fileName.split('.').last()
+    } catch (e: NoSuchElementException) {
+        throw Exception(errorMsg)
+    }
+
+    return when (extension) {
+        "ics" -> "calendars"
+        "vcard" -> "contacts"
+        else -> throw Exception(errorMsg)
+    }
+}
+
+/** Append *[path] segments* to the end of the Uri path.
+ *
+ * Returns `NULL` if the URI is not a path. */
+fun Uri.join(path: String): Uri? {
+    if (this.lastPathSegment == null)
+        return null
+    // Prevent adding a second slash to the join point of the paths
+    val slash = if (this.lastPathSegment!!.last() == '/') "" else "/"
+    return "${this}${URLEncoder.encode("$slash$path", "utf-8")}".toUri()
+}
+
 /** Get a file descriptor for a file from the ContentProvider */
 fun MainActivity.openFd(uri: Uri, perm: String = "r"): ParcelFileDescriptor? {
     return try {
@@ -181,3 +175,13 @@ fun MainActivity.openFd(uri: Uri, perm: String = "r"): ParcelFileDescriptor? {
         null
     }
 }
+
+/** Construct the path for a file that is in the internal app directory.
+ *
+ * Automatically determines in which subdirectory the file should be at by looking at the file's extension. */
+fun Context.internalFile(fileName: String): Path = Path("${this.filesDir.path}/${destinationDir(fileName)}/$fileName")
+/** Construct the path for a file that is in user shared storage.
+ *
+ * Automatically determines in which subdirectory the file should be at by looking at the file's extension.
+ * @param syncDir See [MainActivity.syncDir]. */
+fun externalFile(syncDir: Uri, fileName: String): Uri = syncDir.join("${destinationDir(fileName)}/$fileName")!!

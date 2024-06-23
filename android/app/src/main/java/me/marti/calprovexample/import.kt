@@ -4,10 +4,9 @@ package me.marti.calprovexample
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Log
-import androidx.compose.runtime.mutableStateListOf
 import me.marti.calprovexample.calendar.deleteCalendarByName
-import me.marti.calprovexample.calendar.newCalendar
 import me.marti.calprovexample.ui.CALENDAR_DOCUMENT_MIME_TYPE
+import me.marti.calprovexample.ui.CalendarData
 import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
 import me.marti.calprovexample.ui.MainActivity
 
@@ -176,46 +175,33 @@ fun MainActivity.finishImportOverwrite(fileUri: Uri) {
  * Only tries to delete if syncDir is initialized, otherwise does nothing.
  *
  * Automatically detects whether file is in *`calendars`* or *`contacts`*.
- * @param fileName must include the extension (e.g. `"name.ics"`). */
+ * @param fileName must include the extension (e.g. `"name.ics"`).
+ *
+ * @throws Exception if couldn't delete any of the files for whatever reason. */
 fun MainActivity.deleteFiles(fileName: String) {
-    this.syncDir.value?.let { syncDir ->
-        val dest = destinationDir(fileName)
-        // Delete from App's internal storage
-        try {
-            java.io.File("${this.filesDir.path}/$dest/$fileName").delete()
-        } catch (e: Exception) {
-            false
-        }.let {
-            if (!it) {
-                Log.e("deleteFiles", "Error deleting file in internal directory.")
-                return
-            }
-        }
-        // Delete from syncDir in shared storage
-        try {
-            DocumentsContract.deleteDocument(this.contentResolver, syncDir.join("$dest/$fileName")!!)
-        } catch (e: Exception) {
-            false
-        }.let {
-            if (!it) {
-                Log.e("deleteFiles", "Error deleting file in external directory.")
-                return
-            }
-        }
+    val syncDir = this.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
+    val dest = destinationDir(fileName)
+
+    // Delete from App's internal storage
+    try {
+        if (!this.internalFile(fileName).delete())
+            throw Exception("Unknown Reason")
+    } catch (e: Exception) {
+        throw Exception("Error deleting file in Internal Directory: $e")
+    }
+    // Delete from syncDir in shared storage
+    try {
+        if (!DocumentsContract.deleteDocument(this.contentResolver, syncDir.join("$dest/$fileName")!!))
+            throw Exception("Unknown Reason")
+    } catch (e: Exception) {
+        throw Exception("Error deleting file in External Directory: $e")
     }
 }
 
 /** Adds the newly imported calendar to the content provider and triggers a recomposition with [userCalendars][MainActivity.userCalendars]. */
 private fun MainActivity.addImportedCalendar(name: String, color: Color = Color(DEFAULT_CALENDAR_COLOR)) {
-    this.calendarPermission.run {
-        this.newCalendar(name, color)?.let { newCal ->
-            // Add the Calendar to the list
-            userCalendars.value?.add(newCal) ?: run {
-                userCalendars.value = mutableStateListOf(newCal)
-            }
-        } ?: return@run
-    }
-    // TODO: parse file to add data to content provider
+    this.userCalendars.value?.add(CalendarData(name, color))
+    writeFileDataToCalendar(name)
     // DavSyncRs.parse_file(this.baseContext.filesDir.path, result.calName)
 }
 
@@ -224,23 +210,44 @@ private fun MainActivity.addImportedCalendar(name: String, color: Color = Color(
  *
  * Automatically detects whether file is in *`calendars`* or *`contacts`*.
  * @param fileName must include the extension (e.g. `"name.ics"`).
- * @param id If the ID of a calendar is given, it will write all its data in the ContentProvider to the files that were created. */
+ * @param id If the ID of a calendar is given, it will write all its data in the ContentProvider to the files that were created.
+ * @throws Exception if couldn't create any files for whatever reason. */
 fun MainActivity.createFiles(fileName: String, color: Color, id: Long? = null) {
-    this.syncDir.value?.let { syncDir ->
-        val dest = destinationDir(fileName)
-        // Create file in App's internal storage
-        java.io.File("${this.filesDir.path}/$dest/$fileName").createNewFile()
-        // Create file in syncDir in shared storage
+    val syncDir = this.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
+    val dest = destinationDir(fileName)
+    val name = fileNameWithoutExtension(fileName)
+
+    // Create file in App's internal storage
+    try {
+        if (!this.internalFile(fileName).createNewFile())
+            throw FileAlreadyExistsException(this.internalFile(fileName))
+    } catch (e: Exception) {
+        throw Exception("Error creating file in Internal Directory: $e")
+    }
+    // Create file in syncDir in shared storage
+    try {
         DocumentsContract.createDocument(this.contentResolver,
             syncDir.join(dest)!!,
             CALENDAR_DOCUMENT_MIME_TYPE,
-            fileNameWithoutExtension(fileName)
-        )
-
-        // TODO: write color data to files
-
-        id?.let { id ->
-            // TODO: write calendar data to files
-        }
+            name
+        ) ?: throw Exception("Unknown Reason")
+    } catch (e: Exception) {
+        throw Exception("Error creating file in External Directory: $e")
     }
+
+    writeColorToCalendarFile(name, color)
+
+    id?.let { _ ->
+        writeCalendarDataToFile(name)
+    }
+}
+
+fun writeColorToCalendarFile(name: String, color: Color) {
+    // TODO()
+}
+fun writeCalendarDataToFile(name: String) {
+    // TODO()
+}
+fun writeFileDataToCalendar(name: String) {
+    // TODO()
 }
