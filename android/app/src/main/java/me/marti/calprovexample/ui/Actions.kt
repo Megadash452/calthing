@@ -63,7 +63,6 @@ import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 sealed class Actions private constructor() {
     object NewCalendar: Actions()
     class EditCalendar(val id: Long, val name: String, val color: Color): Actions()
-    object CopyCalendar: Actions()
 }
 
 /** Show a dialog to **Create** the info of a new Calendar for this App.
@@ -118,7 +117,7 @@ class NameCheck(val check: (String) -> Boolean, val error: String) {
  * @param submitButtonContent The text for the *cancel* button.
  * @param color The initial *color* of the Calendar being edited.
  * @param name The initial display *name* of the Calendar being edited.
- * @param nameChecks A set of checks to determine if the *new name* is valid.
+ * @param nameChecks An extra set of checks to determine if the *new name* is valid, aside from the default ones.
  * @param close Stop showing the dialog.
  * @param submit Handle the data submitted by the user. [close] is always called before this.
  *
@@ -131,10 +130,15 @@ fun EditCalendarAction(
     color: Color = Color(DEFAULT_CALENDAR_COLOR),
     title: @Composable () -> Unit,
     name: String,
-    nameChecks: List<NameCheck> = listOf(NameCheck.BlankCheck, NameCheck.uniqueName(LocalContext.current)),
+    nameChecks: List<NameCheck> = listOf(),
     close: () -> Unit,
     submit: (String, Color) -> Unit
 ) {
+    @Suppress("NAME_SHADOWING")
+    val nameChecks = nameChecks + listOf(
+        NameCheck.BlankCheck,
+        NameCheck.uniqueName(LocalContext.current)
+    )
     // The new name of the Calendar. Is the string argument of the `submit` function
     @Suppress("NAME_SHADOWING")
     var name by rememberSaveable { mutableStateOf(name) }
@@ -348,11 +352,7 @@ fun ImportFileExistsAction(
             submitButtonContent = { Text("Rename") },
             cancelButtonContent = { Text("Back") },
             name = name,
-            nameChecks = listOf(
-                NameCheck.BlankCheck,
-                NameCheck.uniqueName(LocalContext.current),
-                NameCheck({ new -> new != name }, "Name must be different"),
-            ),
+            nameChecks = listOf(NameCheck({ new -> new != name }, "Name must be different")),
             close = { isRename = false },
             submit = { newName, _ ->
                 close()

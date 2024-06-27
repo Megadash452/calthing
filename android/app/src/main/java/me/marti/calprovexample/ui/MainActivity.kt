@@ -51,8 +51,7 @@ import me.marti.calprovexample.UserPreference
 import me.marti.calprovexample.calendar.AllData
 import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.calendar.InternalUserCalendar
-import me.marti.calprovexample.calendar.UserCalendarListItem
-import me.marti.calprovexample.calendar.copyExternalCalendars
+import me.marti.calprovexample.calendar.copyExternalCalendar
 import me.marti.calprovexample.calendar.deleteCalendarByName
 import me.marti.calprovexample.calendar.editCalendar
 import me.marti.calprovexample.calendar.externalUserCalendars
@@ -198,8 +197,32 @@ class MainActivity : ComponentActivity() {
                                     actions = NonEmptyList(
                                         ExpandableFab.Action(Icons.Default.Create, "New blank calendar")
                                             { openAction = Actions.NewCalendar },
-                                        ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar")
-                                            { openAction = Actions.CopyCalendar },
+                                        ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar") {
+                                            asyncScope.launch {
+                                                // FIXME: "Skipped 41 frames!  The application may be doing too much work on its main thread."
+                                                // Get the Calendars in the device the user can copy
+                                                val calendars = this@MainActivity.asyncCalendarPermission.runWithMessage("Searching for calendars") {
+                                                    this.externalUserCalendars()
+                                                } ?: run {
+                                                    this@MainActivity.showToast("Error getting calendars")
+                                                    Log.e("CopyCalendar", "Could not get external calendars, either because of error or permissions denied")
+                                                    openAction = null
+                                                    return@launch
+                                                }
+                                                AsyncDialog.showDialog { close ->
+                                                    CopyCalendarAction(
+                                                        calendars = calendars.map { cal ->
+                                                            ExternalUserCalendar(cal,
+                                                                // Find the calendar owned by this app (internal) that copied this calendar's data (if any).
+                                                                userCalendars.value?.find { iCal -> cal.id == iCal.importedFrom }?.name
+                                                            )
+                                                        }.groupBy { cal -> cal.accountName },
+                                                        close = { close(); openAction = null },
+                                                        submit = { selectedCals -> userCalendars.value?.copyFromExternal(selectedCals, asyncScope) }
+                                                    )
+                                                }
+                                            }
+                                        },
                                         ExpandableFab.Action(R.drawable.rounded_upload_file_24, "Import from file") {
                                             asyncScope.launch {
                                                 // Select synDir before importing because it will be expected to Not be NULL.
@@ -253,7 +276,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     syncCalendarSwitch = { id, sync -> userCalendars.value?.edit(id) { it.copy(sync = sync) } },
                                     editCalendar = { id, name, color -> openAction = Actions.EditCalendar(id, name, color) },
-                                    deleteCalendar = { name -> this@MainActivity.deleteCalendar(name, asyncScope, snackBarState) }
+                                    deleteCalendar = { name -> this@MainActivity.deleteCalendar(name, asyncScope) }
                                 )
                             }
 
@@ -264,14 +287,12 @@ class MainActivity : ComponentActivity() {
 
                         // Show a dialog for the current action the user selected
                         when (openAction) {
-                            // TODO: don't allow user to use a name of a calendar that already exists
                             Actions.NewCalendar -> NewCalendarAction(
                                 close = { openAction = null },
                                 submit = { name, color -> userCalendars.value?.add(CalendarData(name, color)) }
                             )
                             is Actions.EditCalendar -> {
                                 val data = openAction as Actions.EditCalendar
-                                // TODO: don't allow user to use a name of a calendar that already exists
                                 EditCalendarAction(
                                     title = { Text("Edit Calendar") },
                                     color = data.color,
@@ -279,38 +300,6 @@ class MainActivity : ComponentActivity() {
                                     close = { openAction = null },
                                     submit = { newName, newColor -> userCalendars.value?.edit(data.id) { it.copy(name = newName, color = newColor) } }
                                 )
-                            }
-                            Actions.CopyCalendar -> {
-                                // Get the Calendars in the device the user can copy
-                                var calendars by remember { mutableStateOf<List<UserCalendarListItem>?>(null) }
-                                // FIXME: small lag on UI when running LaunchedEffect and asyncScope.launch
-                                LaunchedEffect(true) {
-                                    this@MainActivity.asyncCalendarPermission.runWithMessage("Searching for calendars") {
-                                        calendars = this.externalUserCalendars()
-                                        if (calendars == null) {
-                                            this@MainActivity.showToast("Could not query user calendars")
-                                            openAction = null
-                                        }
-                                    } ?: run {
-                                        // Close if couldn't get calendars, because of error or perm denial
-                                        openAction = null
-                                    }
-                                }
-
-                                // TODO: If another calendar with he same name exists, ask user to rename this one
-
-                                calendars?.let { cals ->
-                                    CopyCalendarAction(
-                                        calendars = cals.map { cal ->
-                                            ExternalUserCalendar(cal,
-                                                // Find the calendar owned by this app (internal) that copied this calendar's data (if any).
-                                                userCalendars.value?.find { iCal -> cal.id == iCal.importedFrom }?.name
-                                            )
-                                        }.groupBy { cal -> cal.accountName },
-                                        close = { openAction = null },
-                                        submit = { selectedCals -> userCalendars.value?.copyFromExternal(selectedCals, asyncScope) }
-                                    )
-                                }
                             }
                             null -> {}
                         }
@@ -349,12 +338,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-
     /** Delete the calendar and show a **snack-bar** that can undo the deletion.
      *
      * Moves the deleted calendar to the `"deleted"` directory (like a recycle bin) before fully deleting it.
      * The file is only fully deleted after the snack-bar is dismissed or app is reopened. */
-    private fun deleteCalendar(name: String, asyncScope: CoroutineScope, snackBarState: SnackbarHostState) {
+    private fun deleteCalendar(name: String, asyncScope: CoroutineScope) {
         val calendars = this.userCalendars.value ?: run {
             Log.e("UI deleteCalendar", "Trying to delete Calendar when 'userCalendars' is NULL")
             return
@@ -433,42 +421,40 @@ class MutableCalendarsList(
     internal fun copyFromExternal(calendars: List<ExternalUserCalendar>, asyncScope: CoroutineScope) {
         asyncScope.launch {
             activity.asyncCalendarPermission.runWithMessage("Copying calendars") {
-                // The IDs of the calendars to copy
-                val copyCalendars = calendars
-                    .mapNotNull { newCal ->
-                        // Check whether any of the calendars the user selected would have conflict with another calendar
-                        if (this@MutableCalendarsList.find { cal -> cal.name == newCal.name } == null)
-                            return@mapNotNull newCal // No conflict
-
+                for (tmpCal in calendars) {
+                    // Check whether the selected calendar would have conflict with another calendar
+                    val cal = if (this@MutableCalendarsList.find { cal -> cal.name == tmpCal.name } == null)
+                        tmpCal
+                    else {
                         // In case of conflict, ask user whether to rename, overwrite, or don't import at all
                         var finalName: String? = null
                         AsyncDialog.showDialog { close ->
                             ImportFileExistsAction(
-                                name = newCal.name,
+                                name = tmpCal.name,
                                 rename = { newName -> finalName = newName },
                                 overwrite = {
                                     // TODO: could show snack-bar with undo action
-                                    this@MutableCalendarsList.remove(newCal.name)
-                                    finalName = newCal.name
+                                    this@MutableCalendarsList.remove(tmpCal.name)
+                                    finalName = tmpCal.name
                                 },
                                 close = close
                             )
                         }
 
                         // The calendar is omitted when finalName is NULL because the user canceled the import
-                        finalName?.let { name -> newCal.copy(name = name) }
-                        // FIXME: fix visual bug that only adds calendars after all conflicts are resolved, by putting everything in a single for loop
+                        finalName?.let {
+                            name -> tmpCal.copy(name = name)
+                        } ?: continue
                     }
 
-                this.copyExternalCalendars(copyCalendars)?.let { newCals ->
-                    // Create the files
-                    for (cal in newCals) {
-                        activity.createFiles("${cal.name}.ics", cal.color, cal.id)
-                        writeCalendarDataToFile(cal.name)
-                    }
-                    // Add the Calendars to the list
-                    this@MutableCalendarsList.list.addAll(newCals)
-                } ?: throw Exception("Error copying calendars ")
+                    this.copyExternalCalendar(cal)?.let { newCal ->
+                        // Create the files
+                        activity.createFiles("${newCal.name}.ics", newCal.color, newCal.id)
+                        writeCalendarDataToFile(newCal.name)
+                        // Add the Calendar to the list
+                        this@MutableCalendarsList.list.add(newCal)
+                    } ?: throw Exception("Error copying calendar ${cal.name}")
+                }
             }
         }
     }
@@ -486,15 +472,14 @@ class MutableCalendarsList(
         val new = editor(old)
         val syncDir = activity.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
 
-        // Check if name is unique
-        if (this.indexOfFirst { e -> e.name == new.name } != -1)
-            throw Exception("An element with name \"${new.name}\" already exists in the list")
-
         if (old.id != new.id)
             throw Exception("Can't manually change the ID of a Calendar")
 
         // Rename files
         if (old.name != new.name) {
+            // Check if name is unique
+            if (this.indexOfFirst { e -> e.name == new.name } != -1)
+                throw Exception("An element with name \"${new.name}\" already exists in the list")
             // Rename internal file
             val file = activity.internalFile("${old.name}.ics")
             java.nio.file.Files.move(
@@ -608,6 +593,7 @@ class MutableCalendarsList(
             throw IOException("Error copying \"$fileName\" to \"deleted/calendars\" directory: $e")
         }
         // Delete the Calendar files
+        // FIXME: crashes if fileName has spaces or symbols
         activity.deleteFiles(fileName)
 
         // Delete the Calendar from the list
