@@ -54,14 +54,13 @@ import com.github.skydoves.colorpicker.compose.HsvColorPicker
 import com.github.skydoves.colorpicker.compose.rememberColorPickerController
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.GroupedList
+import me.marti.calprovexample.ILLEGAL_FILE_CHARACTERS
 import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.ui.NameCheck.Companion.checkError
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 
 // Sum-type-like enum
-@Suppress("ConvertObjectToDataObject")
 sealed class Actions private constructor() {
-    object NewCalendar: Actions()
     class EditCalendar(val id: Long, val name: String, val color: Color): Actions()
 }
 
@@ -93,7 +92,11 @@ class NameCheck(val check: (String) -> Boolean, val error: String) {
     companion object {
         // Some common checks
         val BlankCheck = NameCheck({ name -> name.isNotBlank() }, "Name can't be blank")
-        fun uniqueName(context: Context): NameCheck =
+        val InvalidCharsCheck = NameCheck(
+            { name -> name.all { c -> !ILLEGAL_FILE_CHARACTERS.contains(c) } },
+            "Name can't have ${ILLEGAL_FILE_CHARACTERS.joinToString { c -> "'$c'" }}"
+        )
+        fun uniqueNameCheck(context: Context): NameCheck =
             NameCheck({ name -> !java.io.File("${context.filesDir.path}/calendars/$name.ics").exists() }, "Name must be unique")
 
         /** Perform all the checks on the `name`. Returns [error] of the [NameCheck] that failed. */
@@ -117,6 +120,7 @@ class NameCheck(val check: (String) -> Boolean, val error: String) {
  * @param submitButtonContent The text for the *cancel* button.
  * @param color The initial *color* of the Calendar being edited.
  * @param name The initial display *name* of the Calendar being edited.
+ * @param showColorPicker Whether the editor will show a button to bring up the Color Picker.
  * @param nameChecks An extra set of checks to determine if the *new name* is valid, aside from the default ones.
  * @param close Stop showing the dialog.
  * @param submit Handle the data submitted by the user. [close] is always called before this.
@@ -130,6 +134,7 @@ fun EditCalendarAction(
     color: Color = Color(DEFAULT_CALENDAR_COLOR),
     title: @Composable () -> Unit,
     name: String,
+    showColorPicker: Boolean = true,
     nameChecks: List<NameCheck> = listOf(),
     close: () -> Unit,
     submit: (String, Color) -> Unit
@@ -137,7 +142,8 @@ fun EditCalendarAction(
     @Suppress("NAME_SHADOWING")
     val nameChecks = nameChecks + listOf(
         NameCheck.BlankCheck,
-        NameCheck.uniqueName(LocalContext.current)
+        NameCheck.InvalidCharsCheck,
+        NameCheck.uniqueNameCheck(LocalContext.current),
     )
     // The new name of the Calendar. Is the string argument of the `submit` function
     @Suppress("NAME_SHADOWING")
@@ -176,14 +182,16 @@ fun EditCalendarAction(
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // A circle showing the color for the Calendar
-                    Box(Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .background(Color(color).toColor())
-                        .border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                        .clickable { pickColor = true }
-                    )
-                    Spacer(Modifier.size(8.dp))
+                    if (showColorPicker) {
+                        Box(Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(Color(color).toColor())
+                            .border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                            .clickable { pickColor = true }
+                        )
+                        Spacer(Modifier.size(8.dp))
+                    }
                     TextField(
                         value = name,
                         label = { Text("Name") },
@@ -346,12 +354,12 @@ fun ImportFileExistsAction(
     var isRename by remember { mutableStateOf(false) }
 
     if (isRename) {
-        // TODO: don't show color picker
         EditCalendarAction(
             title = { Text("Rename import") },
             submitButtonContent = { Text("Rename") },
             cancelButtonContent = { Text("Back") },
             name = name,
+            showColorPicker = false,
             nameChecks = listOf(NameCheck({ new -> new != name }, "Name must be different")),
             close = { isRename = false },
             submit = { newName, _ ->

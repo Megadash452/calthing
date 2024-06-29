@@ -4,7 +4,6 @@ package me.marti.calprovexample
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Log
-import me.marti.calprovexample.calendar.deleteCalendarByName
 import me.marti.calprovexample.ui.CALENDAR_DOCUMENT_MIME_TYPE
 import me.marti.calprovexample.ui.CalendarData
 import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
@@ -22,48 +21,42 @@ class ImportFileExists(val name: String, val fileUri: Uri)
  *
  * @return Data to be sent the import channel to show the dialog. */
 fun MainActivity.importFiles(uris: List<Uri>) {
-    this.importChannel?.let { importChannel ->
-        // Channel must be closed after returning from this function to release the thread from the loop
-        val close = {
-            importChannel.close()
-            this.importChannel = null
-        }
+    // Channel must be closed after returning from this function to release the thread from the loop
+    fun close() = importChannel.trySend(null)
 
-        if (uris.isEmpty()) {
-            println("OpenFiles: User cancelled the file picker.")
-            close()
-            return
-        }
-
-        val syncDir = this.syncDir.value ?: run {
-            Log.e("importFiles", "'syncDir' is NULL. This should NEVER happen")
-            this.showToast("UNEXPECTED: 'syncDir' is NULL in importFilesIntent")
-            close()
-            return
-        }
-
-        for (uri in uris) {
-            if (uri.path == null)
-                continue
-            println("User picked file: $uri")
-
-            val fileName = uri.fileName()!!
-            val result: ImportFileResult = this.openFd(uri)?.use { file ->
-                DavSyncRs.importFileInternal(file.fd, fileName, this.filesDir.path)
-            } ?: continue
-
-            // Send message to importChannel for every attempt
-            when (result) {
-                is ImportFileResult.Error -> this.showToast("Error importing file")
-                // TODO: maybe use null as a stream terminator instead of resetting the channel??
-                is ImportFileResult.FileExists -> importChannel.trySend(ImportFileExists(result.calName, uri))
-                is ImportFileResult.Success -> this.importExternal(fileName, syncDir)
-            }
-        }
-
-        // close channel when done with all files
+    if (uris.isEmpty()) {
+        println("OpenFiles: User cancelled the file picker.")
         close()
+        return
     }
+
+    val syncDir = this.syncDir.value ?: run {
+        Log.e("importFiles", "'syncDir' is NULL. This should NEVER happen")
+        this.showToast("UNEXPECTED: 'syncDir' is NULL in importFilesIntent")
+        close()
+        return
+    }
+
+    for (uri in uris) {
+        if (uri.path == null)
+            continue
+        println("User picked file: $uri")
+
+        val fileName = uri.fileName()!!
+        val result: ImportFileResult = this.openFd(uri)?.use { file ->
+            DavSyncRs.importFileInternal(file.fd, fileName, this.filesDir.path)
+        } ?: continue
+
+        // Send message to importChannel for every attempt
+        when (result) {
+            is ImportFileResult.Error -> this.showToast("Error importing file")
+            is ImportFileResult.FileExists -> importChannel.trySend(ImportFileExists(result.calName, uri))
+            is ImportFileResult.Success -> this.importExternal(fileName, syncDir)
+        }
+    }
+
+    // close channel when done with all files
+    close()
 }
 
 /** Deletes the file created in the internal directory in the case that importing to external syncDir fails or user cancels. */
@@ -75,9 +68,9 @@ private fun MainActivity.abortImport(fileName: String) {
         Log.e("abortImport", "Error deleting internal file:\n$e")
     }
 }
-/** Creates the file in the external **syncDir** and writes the contents.
+/** Creates the file in the external **syncDir** and writes the contents from the respective file in internal app storage.
  * Helper function to avoid repeating code */
-private fun MainActivity.importExternal(fileName: String, syncDir: Uri) {
+fun MainActivity.importExternal(fileName: String, syncDir: Uri) {
     // THIS IS THE ONLY WAY TO CREATE A FILE IN EXTERNAL STORAGE, EVEN IF YOU HAVE WRITE PERMISSIONS. WHY!!!!
     // AND I CANT OPEN A FILE IN THE DIRECTORY, EVEN IF I HAVE THE FILE DESCRIPTOR
     val externalFileUri = DocumentsContract.createDocument(this.contentResolver,
@@ -140,20 +133,7 @@ fun MainActivity.finishImportOverwrite(fileUri: Uri) {
     // TODO: show snack-bar to undo overwrite import (merge with MainActivity.deleteCalendar)
 
     // Delete calendar from view list
-    this.userCalendars.value?.let { cals ->
-        val i = cals.indexOfFirst { cal -> cal.name == name }
-        if (i == -1) {
-            Log.e("finishImport (Overwrite)", "Trying to delete Calendar that doesn't exist")
-            return
-        }
-        cals.removeAt(i)
-    }
-    // Delete Calendar from content provider
-    this.calendarPermission.run {
-        this.deleteCalendarByName(name)
-    }
-    // Delete Calendar from filesystem
-    this.deleteFiles(fileName)
+    this.userCalendars.value?.remove(name)
 
     // Import files normally
     when (this.openFd(fileUri)?.use { file ->
@@ -191,6 +171,7 @@ fun MainActivity.deleteFiles(fileName: String) {
     }
     // Delete from syncDir in shared storage
     try {
+        // FIXME: pass the fileName to deleteDocument without having to encode it in the URI, because that removes spaces and symbols.
         if (!DocumentsContract.deleteDocument(this.contentResolver, syncDir.join("$dest/$fileName")!!))
             throw Exception("Unknown Reason")
     } catch (e: Exception) {
@@ -211,11 +192,16 @@ private fun MainActivity.addImportedCalendar(name: String, color: Color = Color(
  * Automatically detects whether file is in *`calendars`* or *`contacts`*.
  * @param fileName must include the extension (e.g. `"name.ics"`).
  * @param id If the ID of a calendar is given, it will write all its data in the ContentProvider to the files that were created.
- * @throws Exception if couldn't create any files for whatever reason. */
+ * @throws Exception if couldn't create any files for whatever reason.
+ * @throws IllegalArgumentException if the **fileName** contains [illegal characters][ILLEGAL_FILE_CHARACTERS]. */
 fun MainActivity.createFiles(fileName: String, color: Color, id: Long? = null) {
     val syncDir = this.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
     val dest = destinationDir(fileName)
     val name = fileNameWithoutExtension(fileName)
+
+    // Check for illegal characters
+    for (c in fileName)
+        if (ILLEGAL_FILE_CHARACTERS.contains(c))
 
     // Create file in App's internal storage
     try {

@@ -10,6 +10,8 @@ import java.net.URLEncoder
 import androidx.compose.ui.graphics.Color as ComposeColor
 import java.io.File as Path
 
+val ILLEGAL_FILE_CHARACTERS = arrayOf('/', '*')
+
 /** A **`List<T>`** grouped by values **`G`**, which are members of **`T`**. */
 typealias GroupedList<G, T> = Map<G, List<T>>
 
