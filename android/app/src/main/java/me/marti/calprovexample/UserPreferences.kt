@@ -13,7 +13,6 @@ fun Context.getAppPreferences(): SharedPreferences {
 
 enum class PreferenceKey {
     SYNC_DIR_URI,
-    SYNCED_CALS,
     FRAGMENT_CALS,
 }
 
@@ -81,10 +80,14 @@ abstract class UserPreference<T>(
     var value: T?
         get() = this.state.value
         set(value) {
-            if (value != null) {
+            if (value == null)
+                this.preferences?.edit {
+                    this.remove(this@UserPreference.key.name)
+                }
+            else
                 this.storeValue(value)
-                this.state.value = value
-            }
+
+            this.state.value = value
         }
 }
 

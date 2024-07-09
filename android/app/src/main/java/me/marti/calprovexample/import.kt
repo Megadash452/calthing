@@ -4,10 +4,14 @@ package me.marti.calprovexample
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Log
+import me.marti.calprovexample.calendar.newCalendar
 import me.marti.calprovexample.ui.CALENDAR_DOCUMENT_MIME_TYPE
 import me.marti.calprovexample.ui.CalendarData
+import me.marti.calprovexample.ui.CalendarPermission
+import me.marti.calprovexample.ui.CalendarPermissionScope
 import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
 import me.marti.calprovexample.ui.MainActivity
+import java.io.FileNotFoundException
 
 /** A conflict occurred while importing a file and requires user intervention.
  * Contains data that will be used to show a dialog.
@@ -60,7 +64,7 @@ fun MainActivity.importFiles(uris: List<Uri>) {
 }
 
 /** Deletes the file created in the internal directory in the case that importing to external syncDir fails or user cancels. */
-private fun MainActivity.abortImport(fileName: String) {
+internal fun MainActivity.abortImport(fileName: String) {
     Log.d("abortImport", "Abort: Deleting internal file.")
     try {
         java.io.File("${this.filesDir.path}/${destinationDir(fileName)}/$fileName").delete()
@@ -71,26 +75,7 @@ private fun MainActivity.abortImport(fileName: String) {
 /** Creates the file in the external **syncDir** and writes the contents from the respective file in internal app storage.
  * Helper function to avoid repeating code */
 fun MainActivity.importExternal(fileName: String, syncDir: Uri) {
-    // THIS IS THE ONLY WAY TO CREATE A FILE IN EXTERNAL STORAGE, EVEN IF YOU HAVE WRITE PERMISSIONS. WHY!!!!
-    // AND I CANT OPEN A FILE IN THE DIRECTORY, EVEN IF I HAVE THE FILE DESCRIPTOR
-    val externalFileUri = DocumentsContract.createDocument(this.contentResolver,
-        syncDir.join(destinationDir(fileName))!!,
-        CALENDAR_DOCUMENT_MIME_TYPE,
-        fileNameWithoutExtension(fileName)
-    ) ?: run {
-        abortImport(fileName)
-        return
-    }
-
-    this.openFd(externalFileUri, "w")?.use { externalFile ->
-        DavSyncRs.importFileExternal(externalFile.fd, fileName, this.filesDir.path)
-    }?.let {
-        if (it) Unit else null // Run abort code if result is false
-    } ?: run {
-        abortImport(fileName)
-        return
-    }
-
+    this.copyToExternalFile(fileName, syncDir)
     this.addImportedCalendar(fileNameWithoutExtension(fileName))
 }
 
@@ -159,7 +144,10 @@ fun MainActivity.finishImportOverwrite(fileUri: Uri) {
  *
  * @throws Exception if couldn't delete any of the files for whatever reason. */
 fun MainActivity.deleteFiles(fileName: String) {
-    val syncDir = this.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
+    val syncDir = this.syncDir.value ?: run {
+        Log.w("deleteFiles", "syncDir is NULL; Can't delete external file")
+        return
+    }
     val dest = destinationDir(fileName)
 
     // Delete from App's internal storage
@@ -169,20 +157,24 @@ fun MainActivity.deleteFiles(fileName: String) {
     } catch (e: Exception) {
         throw Exception("Error deleting file in Internal Directory: $e")
     }
-    // Delete from syncDir in shared storage
+    // Delete from syncDir in shared storage.
+    // Failure to delete external file should not cause exception
     try {
         // FIXME: pass the fileName to deleteDocument without having to encode it in the URI, because that removes spaces and symbols.
-        if (!DocumentsContract.deleteDocument(this.contentResolver, syncDir.join("$dest/$fileName")!!))
-            throw Exception("Unknown Reason")
+        DocumentsContract.deleteDocument(this.contentResolver, syncDir.join("$dest/$fileName"))
+    } catch (e: FileNotFoundException) {
+        Log.w("deleteFiles", "Tried deleting external file, but it did not exist: $e")
     } catch (e: Exception) {
-        throw Exception("Error deleting file in External Directory: $e")
+        Log.e("deleteFiles", "Error deleting external file: $e")
     }
 }
 
 /** Adds the newly imported calendar to the content provider and triggers a recomposition with [userCalendars][MainActivity.userCalendars]. */
 private fun MainActivity.addImportedCalendar(name: String, color: Color = Color(DEFAULT_CALENDAR_COLOR)) {
     this.userCalendars.value?.add(CalendarData(name, color))
-    writeFileDataToCalendar(name)
+    this.calendarPermission.run {
+        this.writeFileDataToCalendar(name)
+    }
     // DavSyncRs.parse_file(this.baseContext.filesDir.path, result.calName)
 }
 
@@ -195,13 +187,17 @@ private fun MainActivity.addImportedCalendar(name: String, color: Color = Color(
  * @throws Exception if couldn't create any files for whatever reason.
  * @throws IllegalArgumentException if the **fileName** contains [illegal characters][ILLEGAL_FILE_CHARACTERS]. */
 fun MainActivity.createFiles(fileName: String, color: Color, id: Long? = null) {
-    val syncDir = this.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
+    val syncDir = this.syncDir.value ?: run {
+        Log.w("createFiles", "syncDir is NULL; Can't add external file; Will add it later")
+        return
+    }
     val dest = destinationDir(fileName)
     val name = fileNameWithoutExtension(fileName)
 
     // Check for illegal characters
     for (c in fileName)
         if (ILLEGAL_FILE_CHARACTERS.contains(c))
+            throw IllegalArgumentException("File name can't contain the following characters: [${ILLEGAL_FILE_CHARACTERS.joinToString { "'$it'" }}]")
 
     // Create file in App's internal storage
     try {
@@ -214,7 +210,7 @@ fun MainActivity.createFiles(fileName: String, color: Color, id: Long? = null) {
     // Create file in syncDir in shared storage
     try {
         DocumentsContract.createDocument(this.contentResolver,
-            syncDir.join(dest)!!,
+            syncDir.join(dest),
             CALENDAR_DOCUMENT_MIME_TYPE,
             name
         ) ?: throw Exception("Unknown Reason")
@@ -235,6 +231,9 @@ fun writeColorToCalendarFile(name: String, color: Color) {
 fun writeCalendarDataToFile(name: String) {
     // TODO()
 }
-fun writeFileDataToCalendar(name: String) {
-    // TODO()
+/** Will create calendar in Content Provider if it doesn't yet exist */
+fun CalendarPermissionScope.writeFileDataToCalendar(name: String) {
+    // TODO: check if calendar exists first
+    this.newCalendar(name, Color(DEFAULT_CALENDAR_COLOR)) // TODO: use color from file
+    // TODO: parse file contents and add them to the Content Provider
 }

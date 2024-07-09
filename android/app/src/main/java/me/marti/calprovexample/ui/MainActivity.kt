@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -56,6 +57,7 @@ import me.marti.calprovexample.calendar.editCalendar
 import me.marti.calprovexample.calendar.externalUserCalendars
 import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
+import me.marti.calprovexample.copyToExternalFile
 import me.marti.calprovexample.createFiles
 import me.marti.calprovexample.deleteFiles
 import me.marti.calprovexample.destinationDir
@@ -90,11 +92,6 @@ class MainActivity : ComponentActivity() {
      * This URI can be used by the [Documents Content Provider][android.provider.DocumentsProvider]
      * by using the [DocumentsContract]. */
     val syncDir: UserPreference<Uri> = StringLikeUserPreference(PreferenceKey.SYNC_DIR_URI) { uri -> uri.toUri() }
-        .apply {
-            this.value?.let {
-                // TODO: test if app still has access at startup
-            }
-        }
     /** Holds the list of the App's Calendars that will be displayed to the user.
      * **`Null`** if the user hasn't granted permission (this can't be represented by empty because the user could have no calendars in the device).
      *
@@ -107,39 +104,49 @@ class MainActivity : ComponentActivity() {
      *  false if the user canceled. */
     private val dirSelectChannel = Channel<Boolean>()
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
-    private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri == null) {
+    private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+        if (treeUri == null) {
             println("OpenDir: User cancelled the file picker.")
             dirSelectChannel.trySend(false)
             return@registerForActivityResult
         }
         // Preserve access to the directory. Otherwise, access would be revoked when app is closed.
-        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        @Suppress("NAME_SHADOWING")
+        contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         // Convert Tree URI to an URI that can be used by the DocumentsProvider
-        val uri = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
+        val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
 
-        val file = this.openFd(uri) ?: run {
+        this.openFd(uri)?.use { file ->
+            // Create calendar and contacts dirs in internal and external directories.
+            DavSyncRs.initialize_dirs(file.fd, this.filesDir.path)
+            // // Copy files from internal to external, and vice versa, resolving conflicts with user
+            // DavSyncRs.merge_dirs(file.fd, this.filesDir.path)
+        } ?: run {
             dirSelectChannel.trySend(false)
             return@registerForActivityResult
         }
-        DavSyncRs.initialize_sync_dir(file.fd)
-        file.close()
 
-        // Now that syncDir is initialized, create the files for calendars stored in the provider
-        if (this.calendarPermission.hasPermission())
-            // TODO: also import files in syncDir (use user to resolve conflicts too)
-            this.calendarPermission.run {
-                for (cal in this.internalUserCalendars()!!) {
-                    try {
-                        this@MainActivity.createFiles("${cal.name}.ics", cal.color, cal.id)
-                    } catch (e: Exception) {
-                        Log.e("dirSelectIntent", "Error creating files for \"${cal.name}.ics\" in newly-selected syncDir")
-                    }
+        val internalFiles = Path("${this.filesDir.path}/calendars/").listFiles()!!
+        val externalFiles = DocumentFile.fromTreeUri(this.baseContext, uri)!!.findFile("calendars")!!.listFiles()
+        // Find the files that are in one directory but not in the other, and copy them to the other.
+        val copyToInternal = externalFiles.filter { file -> !internalFiles.map { it.name }.contains(file.name!!) }
+        val copyToExternal = internalFiles.filter { file -> !externalFiles.map { it.name!! }.contains(file.name) }
+        val filesToMerge = internalFiles.filter { file -> externalFiles.map { it.name!! }.contains(file.name) }
+        // Copy the files
+        for (file in copyToInternal) {
+            this.openFd(file.uri)?.use { fileFd ->
+                try { DavSyncRs.importFileInternal(fileFd.fd, file.name!!, this.filesDir.path) }
+                catch (e: Exception) {
+                    Log.e("mergeDirs", "Error copying external file to internal dir: $e")
                 }
             }
-        else
-            Log.w("dirSelectIntent", "Can't create files for calendars stored in the provider; no calendar permission")
+        }
+        for (file in copyToExternal)
+            this.copyToExternalFile(file.name, uri)
+        // TODO: Check if common files are different, and ask user whether to accept incoming or keep internal (launch in other thread)
+        // Add calendars from external directory to Content Provider
+        // Calendars in internal dir are should already be in the Content Provider
+        for (file in copyToInternal)
+            writeCalendarDataToFile(file.name!!)
 
         this.syncDir.value = uri
         dirSelectChannel.trySend(true)
@@ -166,6 +173,14 @@ class MainActivity : ComponentActivity() {
         this.syncDir.initStore(preferences)
         val fragmentCals = BooleanUserPreference(PreferenceKey.FRAGMENT_CALS)
         fragmentCals.initStore(preferences)
+
+        // Check if still has access to external directory
+        this.syncDir.value?.let { uri ->
+            if (this.contentResolver.persistedUriPermissions.find {
+                it.uri == DocumentsContract.buildTreeDocumentUri(uri.authority, DocumentsContract.getDocumentId(uri))
+            } == null)
+                this.syncDir.value = null
+        }
 
         // Clear recycle bin
         Path("${this.filesDir}/deleted/").deleteRecursively()
@@ -343,7 +358,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                println("DONE IMPORTING")
             }
         },
     )
@@ -423,6 +437,7 @@ class MutableCalendarsList(
                                     rename = { newName -> finalName = newName },
                                     overwrite = {
                                         finalName = tmpCal.name
+                                        // TODO: crashes. Internal file not found
                                         asyncScope.launch { this@MutableCalendarsList.delete(tmpCal.name) }
                                     },
                                     close = close
@@ -478,7 +493,6 @@ class MutableCalendarsList(
         val old = this[index]
         val new = CalendarEditor(old.name, old.color, old.sync)
         editor(new)
-        val syncDir = activity.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
 
         // Rename files
         if (old.name != new.name) {
@@ -492,9 +506,14 @@ class MutableCalendarsList(
                 file.resolveSibling("${new.name}.ics").toPath()
             )
             // Rename external file
-            DocumentsContract.renameDocument(activity.contentResolver,
-                externalFile(syncDir, "${old.name}.ics"), "${new.name}.ics"
-            ) ?: throw Exception("Error renaming file in external directory from \"${old.name}.ics\" to \"${new.name}.ics\"")
+            activity.syncDir.value?.also { syncDir ->
+                DocumentsContract.renameDocument(activity.contentResolver,
+                    externalFile(syncDir, "${old.name}.ics"), "${new.name}.ics"
+                ) ?: throw Exception("Error renaming file in external directory from \"${old.name}.ics\" to \"${new.name}.ics\"")
+            } ?: run {
+                Log.w("MutableCalendarList.edit", "syncDir is NULL; can't rename external file")
+                return
+            }
         }
         // Change color in files
         if (old.color != new.color)
@@ -632,7 +651,6 @@ class MutableCalendarsList(
      * @throws Exception if an error occurs while working with the files or Content Provider. */
     private fun restore(name: String) {
         val fileName = "$name.ics"
-        val syncDir = activity.syncDir.value ?: throw Exception("syncDir is NULL; can't delete external file")
         // The file in the "recycle bin"
         val deleted = Path("${activity.filesDir.path}/deleted/calendars/$fileName")
         // The file in internal app storage that will be restored
@@ -649,17 +667,10 @@ class MutableCalendarsList(
         // Copy file to internal dir
         deleted.copyTo(targetFile)
         // Copy file to external dir
-        val externalFileUri = DocumentsContract.createDocument(activity.contentResolver,
-            syncDir.join(destinationDir(fileName))!!,
-            CALENDAR_DOCUMENT_MIME_TYPE,
-            fileNameWithoutExtension(fileName)
-        ) ?: throw Exception("Failed to create file \"$fileName\" in external storage")
-
-        activity.openFd(externalFileUri, "w")?.use { externalFile ->
-            DavSyncRs.importFileExternal(externalFile.fd, fileName, activity.filesDir.path)
-        }?.let {
-            if (it) Unit else null // Run abort code if result is false
-        } ?: throw Exception("Failed to write content to external file \"$fileName\"")
+        activity.copyToExternalFile(fileName, activity.syncDir.value ?: run {
+            Log.w("MutableCalendarList.restore", "syncDir is NULL; can't create external file")
+            return
+        })
         // File in recycle bin is no longer needed
         deleted.delete()
         // Create entry in Content Provider,
@@ -668,9 +679,9 @@ class MutableCalendarsList(
                 // Add the Calendar to the list
                 this@MutableCalendarsList.list.add(newCal)
             } ?: throw Exception("Error creating new calendar")
+            // ,and parse the file's content
+            this.writeFileDataToCalendar(name)
         }
-        // ,and parse the file's content
-        writeFileDataToCalendar(name)
     }
 
     override fun isEmpty(): Boolean = this.list.isEmpty()

@@ -3,8 +3,10 @@ package me.marti.calprovexample
 import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
 import android.util.Log
 import androidx.core.net.toUri
+import me.marti.calprovexample.ui.CALENDAR_DOCUMENT_MIME_TYPE
 import me.marti.calprovexample.ui.MainActivity
 import java.net.URLEncoder
 import androidx.compose.ui.graphics.Color as ComposeColor
@@ -152,12 +154,14 @@ fun destinationDir(fileName: String): String {
     }
 }
 
-/** Append *[path] segments* to the end of the Uri path.
- *
- * Returns `NULL` if the URI is not a path. */
-fun Uri.join(path: String): Uri? {
+/** Append *[path] segments* to the end of the Document Uri path.
+ * @throws IllegalArgumentException If the uri is not a Document URI. */
+fun Uri.join(path: String): Uri {
+    // The second-to-last pathSegment must be "document"
+    if (this.pathSegments.reversed()[1] != "document")
+        throw IllegalArgumentException("URI must be a Document URI, i.e. it must have \".../document/<document_path>\"")
     if (this.lastPathSegment == null)
-        return null
+        throw IllegalArgumentException("Document URI does not have path segment for the document.")
     // Prevent adding a second slash to the join point of the paths
     val slash = if (this.lastPathSegment!!.last() == '/') "" else "/"
     return "${this}${URLEncoder.encode("$slash$path", "utf-8")}".toUri()
@@ -178,6 +182,33 @@ fun MainActivity.openFd(uri: Uri, perm: String = "r"): ParcelFileDescriptor? {
     }
 }
 
+/** Copy the contents of a real file in the file system to a file in shared storage (uses content provider).
+ * Creates the file with the same *file name*.
+ *
+ *  @param fileName The name of the file (e.g. `"calendar.ics"`). The path of the file will be derived from its *file extension*.
+ *  @param syncDir Directory containing external files. See [MainActivity.syncDir]. */
+fun MainActivity.copyToExternalFile(fileName: String, syncDir: Uri) {
+    // THIS IS THE ONLY WAY TO CREATE A FILE IN EXTERNAL STORAGE, EVEN IF YOU HAVE WRITE PERMISSIONS. WHY!!!!
+    // AND I CANT OPEN A FILE IN THE DIRECTORY, EVEN IF I HAVE THE FILE DESCRIPTOR
+    val externalFileUri = DocumentsContract.createDocument(this.contentResolver,
+        syncDir.join(destinationDir(fileName)),
+        CALENDAR_DOCUMENT_MIME_TYPE,
+        fileNameWithoutExtension(fileName)
+    ) ?: run {
+        abortImport(fileName)
+        return
+    }
+
+    this.openFd(externalFileUri, "w")?.use { externalFile ->
+        DavSyncRs.importFileExternal(externalFile.fd, fileName, this.filesDir.path)
+    }?.let {
+        if (it) Unit else null // Run abort code if result is false
+    } ?: run {
+        abortImport(fileName)
+        return
+    }
+}
+
 /** Construct the path for a file that is in the internal app directory.
  *
  * Automatically determines in which subdirectory the file should be at by looking at the file's extension. */
@@ -186,4 +217,4 @@ fun Context.internalFile(fileName: String): Path = Path("${this.filesDir.path}/$
  *
  * Automatically determines in which subdirectory the file should be at by looking at the file's extension.
  * @param syncDir See [MainActivity.syncDir]. */
-fun externalFile(syncDir: Uri, fileName: String): Uri = syncDir.join("${destinationDir(fileName)}/$fileName")!!
+fun externalFile(syncDir: Uri, fileName: String): Uri = syncDir.join("${destinationDir(fileName)}/$fileName")

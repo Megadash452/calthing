@@ -10,7 +10,9 @@ object DavSyncRs {
         System.loadLibrary("davsync")
     }
 
-    external fun initialize_sync_dir(fd: Int)
+    external fun initialize_dirs(externalDirFd: Int, appDir: String)
+
+    external fun merge_dirs(externalDirFd: Int, appDir: String)
 
     private external fun import_file_internal(fileFd: Int, fileName: String, appDir: String): Byte
     fun importFileInternal(fileFd: Int, fileName: String, appDir: String): ImportFileResult {
