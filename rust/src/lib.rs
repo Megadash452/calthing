@@ -6,7 +6,7 @@ mod fs;
 use utils::*;
 use fs::*;
 
-use std::{collections::HashMap, fs::File, io::ErrorKind, path::{Path, PathBuf}};
+use std::{collections::HashMap, fs::{DirEntry, File}, io::ErrorKind, path::{Path, PathBuf}};
 use jni::{
     objects::{JClass, JString}, JNIEnv
 };
@@ -31,55 +31,93 @@ const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
 const SUFFIX_DIR: &str = "calendars";
 
 #[no_mangle]
-pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_initialize_1sync_1dir<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, dir_fd: i32) {
+pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_initialize_1dirs<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, external_dir_fd: i32, app_dir: JString<'local>) {
+    let app_dir = PathBuf::from(get_string(&env, app_dir));
     // FIXME: for some reason, on my phone, libc::readdir() only returns directories (excluding . and ..), while on emulator it returns all files....
     // FIXME: Also, libc::seekdir does not work at all in the emulator. was using read
-    match initialize_sync_dir(dir_fd) {
+    match initialize_dirs(external_dir_fd, &app_dir) {
         Ok(v) => v,
         Err(error) => env.throw(error).unwrap()
     }
 }
 
-fn initialize_sync_dir(dir_fd: i32) -> Result<(), String> {
-    let path = fdpath(dir_fd)
+/// Initialize the **internal** and **external** directories by creating all necessary directories (e.g. calendars and contacts directories).
+/// 
+/// ### Paramters
+/// - **dir_fd** is the *file descriptor* for the directory in shared storage the user picked to sync files.
+/// - **app_dir** is the app's internal direcotry where its files are stored.
+fn initialize_dirs(external_dir_fd: i32, app_dir: &Path) -> Result<(), String> {
+    let external_dir = fdpath(external_dir_fd)
         .map_err(|error| format!("Error getting path for fd: {error}"))?;
 
-    // Tells which entries from DIRECTORIES already exist in this directory.
-    let mut dirs_exist = DIRECTORIES
-        .iter()
-        .map(|&dir| (dir, false))
-        .collect::<HashMap<&'static str, bool>>();
-
-    for entry in std::fs::read_dir(&path)
-        .map_err(|error| format!("Error opening directory: {error}"))?
-    {
-        let entry = entry
-            .map_err(|error| format!("Error reading entry: {error}"))?;
-
-        let name = entry.file_name();
-        let name = match name.to_str() {
-            Some(name) => name,
-            // Ignore entry if name is not a valid str
-            None => continue
-        };
-
-        // Mark that the entry exists so that we don't attempt to create directory..
-        if let Some(exists) = dirs_exist.get_mut(name) {
-            *exists = true
+    // Initialize both external and internal (app_dir) directories
+    for directory in [external_dir.as_path(), app_dir] {
+        // Tells which entries from DIRECTORIES already exist in this directory.
+        // Starts with all false.
+        let mut dirs_exist = DIRECTORIES
+            .iter()
+            .map(|&dir| (dir, false))
+            .collect::<HashMap<&'static str, bool>>();
+    
+        // Populate dirs_exist with true values for entries that exist in the directory.
+        for entry in std::fs::read_dir(directory)
+            .map_err(|error| format!("Error opening directory: {error}"))?
+        {
+            let entry = entry
+                .map_err(|error| format!("Error reading entry: {error}"))?;
+    
+            let name = entry.file_name();
+            let name = match name.to_str() {
+                Some(name) => name,
+                // Ignore entry if name is not a valid str
+                None => continue
+            };
+    
+            // Mark that the entry exists so that we don't attempt to create directory..
+            if let Some(exists) = dirs_exist.get_mut(name) {
+                *exists = true
+            }
         }
-    }
-
-    // The directories that will be created
-    let create_dirs = dirs_exist.into_iter()
-        .filter_map(|(name, exists)| if exists { None } else { Some(name) });
-    for name in create_dirs {
-        std::fs::create_dir(path.join(name))
-            .map_err(|error| format!("Error creating directory: {error}"))?
+    
+        // Create the directories
+        for name in dirs_exist.into_iter()
+            .filter_map(|(name, exists)| if exists { None } else { Some(name) })
+        {
+            std::fs::create_dir(directory.join(name))
+                .map_err(|error| format!("Error creating directory: {error}"))?
+        }
     }
 
     Ok(())
 }
 
+#[no_mangle]
+pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_merge_1dirs<'local>(mut env: JNIEnv<'static>, _class: JClass<'local>, external_dir_fd: i32, app_dir: JString<'local>) {
+    let app_dir = PathBuf::from(get_string(&env, app_dir));
+    unsafe { ENV = Some(&mut env) }
+    match merge_dirs(external_dir_fd, &app_dir) {
+        Ok(v) => v,
+        Err(error) => env.throw(error).unwrap()
+    }
+    unsafe { ENV = None }
+}
+fn merge_dirs(external_dir_fd: i32, app_dir: &Path) -> Result<(), String> {
+    let external_dir = fdpath(external_dir_fd)
+        .map_err(|error| format!("Error getting path for fd: {error}"))?;
+    fn ls(path: &Path) -> Result<Box<[DirEntry]>, String> {
+        Result::from_iter(
+            path.read_dir()
+                .map_err(|error| format!("Error opening directory: {error}"))?
+        ).map_err(|error| format!("Error reading directory entries: {error}"))
+    }
+
+    // TODO: external files always empty... (refer to comment of Java_me_marti_calprovexample_DavSyncRs_initialize_1dirs)
+    let external_files = ls(&external_dir.join("calendars"))?;
+    let internal_files = ls(&app_dir.join("calendars"))?;
+    println!("external files: {external_files:?}");
+    println!("internal files: {internal_files:?}");
+    Ok(())
+}
 
 #[repr(i8)]
 pub enum ImportResult {
@@ -87,7 +125,7 @@ pub enum ImportResult {
 }
 // Getting s a file descriptor seems to be the only way to open a file not owned by the app, even with permission.
 #[no_mangle]
-pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file_1internal<'local>(mut env: JNIEnv<'static>, _class: JClass<'local>, file_fd: i32, file_name: JString<'local>, app_dir: JString<'local>) -> ImportResult {
+pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file_1internal<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, file_fd: i32, file_name: JString<'local>, app_dir: JString<'local>) -> ImportResult {
     let file_name = get_string(&env, file_name);
     // The App's internal directory where the process has permissions to read/write files.
     let app_dir = PathBuf::from(get_string(&env, app_dir));
@@ -104,7 +142,6 @@ pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file_1inte
         }
     }
 }
-
 /// Copy an *`.ics`* file's content into the internal *app's directory*.
 /// 
 /// A *successful* (`Ok(true)`) call to this function shold be subsequently followed by a call to [`import_file_external()`]
@@ -145,7 +182,7 @@ fn import_file_internal(file_fd: i32, file_name: &str, app_dir: &Path) -> Result
 }
 
 #[no_mangle]
-pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file_1external<'local>(mut env: JNIEnv<'static>, _class: JClass<'local>, external_file_fd: i32, file_name: JString<'local>, app_dir: JString<'local>) {
+pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file_1external<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, external_file_fd: i32, file_name: JString<'local>, app_dir: JString<'local>) {
     let file_name = get_string(&env, file_name);
     // The App's internal directory where the process has permissions to read/write files.
     let app_dir = PathBuf::from(get_string(&env, app_dir));
