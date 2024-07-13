@@ -44,6 +44,19 @@ fun <T, R> List<T>.tryMap(transform: (T) -> R?): List<R>? {
     }
 }
 
+/** Indicates that an element cannot be added to a **set-like** structure because an element with the same name (or other properties) already exists.
+ * @param propertyValue A value that exists in the **set-like** structure that prevents another element with the same **property value** from being added. */
+class ElementExistsException(propertyValue: String): Exception() {
+    private var propertyName = "name"
+    override val message: String = "An element with $propertyName \"$propertyValue\" already exists"
+
+    /** @param propertyName An optional name for the property (e.g. `"name"`).
+     * @see ElementExistsException */
+    constructor(propertyName: String, propertyValue: String): this(propertyValue) {
+        this.propertyName = propertyName
+    }
+}
+
 data class Color(
     val r: UByte,
     val g: UByte,

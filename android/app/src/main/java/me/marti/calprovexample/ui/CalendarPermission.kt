@@ -45,7 +45,7 @@ class CalendarPermissionScope internal constructor(val context: Context)
  *
  * Instances of this class MUST be initialized *before* the `Activity.onCreate()` method.
  *
- * Functions that require the permissions must written as *Extension functions* that take [CalendarPermissionScope] as their receiver.
+ * Functions that require the permissions must be written as *Extension functions* that take [CalendarPermissionScope] as their receiver.
  * The only way to obtain the **`Scope`** is if the permission is *granted*,
  * so writing functions this way ensures they can only be called if the permission is granted.
  * The **`Scope`** contains the activity's `Context` for convenience.
@@ -86,13 +86,32 @@ class CalendarPermissionScope internal constructor(val context: Context)
  *     }
  * }
  * ```
+ * @param onPermGranted A function that always runs when the user Allows the permissions, regardless of the action being run.
  * @see CalendarPermission
  * @see AsyncCalendarPermission */
-// TODO: call initUserCalendars when user grants permission.
-abstract class Permission(internal val activity: MainActivity) {
+abstract class Permission(private val activity: MainActivity, private val onPermGranted: (() -> Unit)?) {
     /** Use [MainActivity.registerForActivityResult] with [ActivityResultContracts.RequestMultiplePermissions]. */
-    internal abstract val requestLauncher: ActivityResultLauncher<Array<String>>
-    internal open val dsl by lazy { CalendarPermissionScope(this.activity.baseContext) }
+    internal val requestLauncher: ActivityResultLauncher<Array<String>> = this.activity.registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        this.onPermGranted?.invoke()
+        this.onPermRequested(results)
+    }
+    internal val dsl by lazy { CalendarPermissionScope(this.activity.baseContext) }
+
+    /** The function that will be called when [requestLauncher] is launched.
+     * Handles the allowing or denial of the permissions requested. */
+    internal abstract fun onPermRequested(results: Map<String, Boolean>)
+
+    /** Run the **action** only if the Activity has the required permissions.
+     * Otherwise, an [Exception] will be thrown.
+     * @see AsyncCalendarPermission.run */
+    fun <T> runOrFail(action: CalendarPermissionScope.() -> T): T {
+        return if (this.hasPermission())
+            action(this.dsl)
+        else
+            throw Exception("Missing permissions to run action $action.")
+    }
 
     /** Check if the app has the runtime permission to *read/write* device calendar. */
     fun hasPermission(): Boolean {
@@ -152,8 +171,9 @@ abstract class Permission(internal val activity: MainActivity) {
  * ```
  */
 class CalendarPermission(
-    activity: MainActivity
-): Permission(activity) {
+    activity: MainActivity,
+    onPermGranted: (() -> Unit)?
+): Permission(activity, onPermGranted) {
     /** System Calendar operations can block the main thread, so delegate them to another thread.
      *  Use **`calendarsThread.execute`** inside a *`calendarPermission.run`* block.
      *
@@ -162,9 +182,7 @@ class CalendarPermission(
 
     private var currentAction: (CalendarPermissionScope.() -> Unit)? = null
 
-    override val requestLauncher = this.activity.registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
+    override fun onPermRequested(results: Map<String, Boolean>) {
         if (checkResults(results))
             currentAction?.let { action ->
                 this.calendarThread.execute { action(this.dsl) }
@@ -175,7 +193,8 @@ class CalendarPermission(
             this.showDeniedToast()
     }
 
-    /** Run a function that requires *Calendar Permissions* in another thread. */
+    /** Run a function that requires *Calendar Permissions* in another thread.
+     * If permission has not yet been granted, it will be requested, and then the **action** will be run. */
     fun run(action: CalendarPermissionScope.() -> Unit) {
         if (this.hasPermission())
             this.calendarThread.execute { action(this.dsl) }
@@ -214,20 +233,22 @@ class CalendarPermission(
 
 /** An async implementation of [Permission] using Kotlin's **Coroutines**. */
 class AsyncCalendarPermission(
-    activity: MainActivity
-): Permission(activity) {
+    activity: MainActivity,
+    onPermGranted: (() -> Unit)?
+): Permission(activity, onPermGranted) {
     private val channel = Channel<Boolean>()
 
-    override val requestLauncher = this.activity.registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
+    override fun onPermRequested(results: Map<String, Boolean>) {
         channel.trySend(checkResults(results))
     }
 
     /** Run a function that requires *Calendar Permissions* asynchronously, using Kotlin's *Coroutines*,
      * waiting for the action to finish running and returning its return value (`T`).
      *
-     * @return **`NULL`** if permissions were not granted. */
+     * If permission has not yet been granted, it will be requested, and then the **action** will be run.
+     *
+     * @return **`NULL`** if permissions were denied.
+     * @see Permission.runOrFail */
     suspend fun <T> run(action: suspend CalendarPermissionScope.() -> T): T? {
         return if (this.hasPermission())
             action(this.dsl)

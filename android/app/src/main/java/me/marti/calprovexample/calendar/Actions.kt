@@ -8,8 +8,11 @@ import android.util.Log
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.database.getLongOrNull
 import me.marti.calprovexample.Color
+import me.marti.calprovexample.ElementExistsException
 import me.marti.calprovexample.R
 import me.marti.calprovexample.ui.CalendarPermissionScope
+import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
+import java.io.File as Path
 
 /** Display data about a calendar to the user.
  * @see ExternalUserCalendar
@@ -162,51 +165,75 @@ fun CalendarPermissionScope.getData(id: Long): InternalUserCalendar? {
 }
 
 
-/** @return Returns the basic data about the Calendar so it can be added to the *`userCalendars`* list.
- *          **`Null`** if adding the calendar failed. */
+/** Create a new Calendar entry in the Content Provider.
+ * @return Returns the basic data about the Calendar so it can be added to the *`userCalendars`* list.
+ *   **`Null`** or if adding the calendar failed.
+ * @throws ElementExistsException if a calendar with this name already exists */
 fun CalendarPermissionScope.newCalendar(name: String, color: Color): InternalUserCalendar? {
     val accountName = this.context.getString(R.string.account_name)
+    val uri = CalendarContract.Calendars.CONTENT_URI.asSyncAdapter(accountName)
+    return this.context.contentResolver.acquireContentProviderClient(uri)?.use { client ->
+        client.getCursor<DisplayCalendarProjection>(uri,
+            "${DisplayCalendarProjection.DISPLAY_NAME.column} = ?",
+            arrayOf(name)
+        )?.use { cursor ->
+            // If there already exists a calendar with this name,
+            if (cursor.moveToFirst())
+                throw ElementExistsException(name)
+        }
 
-    val newCalUri = this.context.contentResolver.insert(CalendarContract.Calendars.CONTENT_URI.asSyncAdapter(accountName), ContentValues().apply {
-        // Required
-        this.put(CalendarContract.Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL)
-        this.put(CalendarContract.Calendars.ACCOUNT_NAME, accountName)
-        this.put(CalendarContract.Calendars.OWNER_ACCOUNT, accountName)
-        this.put(CalendarContract.Calendars.NAME, name) // Don't really know what this is for
-        this.put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, name)
-        this.put(CalendarContract.Calendars.CALENDAR_COLOR, color.toColor().toArgb())
-        this.put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.CAL_ACCESS_OWNER)
-        // Not required, but recommended
-        this.put(CalendarContract.Calendars.CALENDAR_TIME_ZONE, "America/New_York") // TODO: get value from rust library
-        // The calendar starts as not synced, then the user can choose whether to sync it or not.
-        this.put(CalendarContract.Calendars.SYNC_EVENTS, 0)
-        this.put(CalendarContract.Calendars.VISIBLE, 1)
-        this.put(
-            CalendarContract.Calendars.ALLOWED_REMINDERS,
-            "${CalendarContract.Reminders.METHOD_DEFAULT}," +
-            "${CalendarContract.Reminders.METHOD_ALERT}," +
-            "${CalendarContract.Reminders.METHOD_ALARM}"
+        val newCalUri = client.insert(uri, ContentValues().apply {
+            // Required
+            this.put(CalendarContract.Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL)
+            this.put(CalendarContract.Calendars.ACCOUNT_NAME, accountName)
+            this.put(CalendarContract.Calendars.OWNER_ACCOUNT, accountName)
+            this.put(CalendarContract.Calendars.NAME, name) // Don't really know what this is for
+            this.put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, name)
+            this.put(CalendarContract.Calendars.CALENDAR_COLOR, color.toColor().toArgb())
+            this.put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.CAL_ACCESS_OWNER)
+            // Not required, but recommended
+            this.put(CalendarContract.Calendars.CALENDAR_TIME_ZONE, "America/New_York") // TODO: get value from rust library
+            // The calendar starts as not synced, then the user can choose whether to sync it or not.
+            this.put(CalendarContract.Calendars.SYNC_EVENTS, 0)
+            this.put(CalendarContract.Calendars.VISIBLE, 1)
+            this.put(
+                CalendarContract.Calendars.ALLOWED_REMINDERS,
+                "${CalendarContract.Reminders.METHOD_DEFAULT}," +
+                        "${CalendarContract.Reminders.METHOD_ALERT}," +
+                        "${CalendarContract.Reminders.METHOD_ALARM}"
+            )
+            this.put(
+                CalendarContract.Calendars.ALLOWED_AVAILABILITY,
+                "${CalendarContract.Events.AVAILABILITY_BUSY}," +
+                        "${CalendarContract.Events.AVAILABILITY_FREE}," +
+                        "${CalendarContract.Events.AVAILABILITY_TENTATIVE}"
+            )
+            this.put(CalendarContract.Calendars.ALLOWED_ATTENDEE_TYPES, CalendarContract.Attendees.TYPE_NONE)
+        }) ?: run {
+            Log.e("newCalendar", "Failed to add calendar \"$name\"")
+            return@newCalendar null
+        }
+
+        InternalUserCalendar(
+            id = ContentUris.parseId(newCalUri),
+            name = name,
+            accountName = accountName,
+            color = color,
+            sync = false,
+            importedFrom = null
         )
-        this.put(
-            CalendarContract.Calendars.ALLOWED_AVAILABILITY,
-            "${CalendarContract.Events.AVAILABILITY_BUSY}," +
-            "${CalendarContract.Events.AVAILABILITY_FREE}," +
-            "${CalendarContract.Events.AVAILABILITY_TENTATIVE}"
-        )
-        this.put(CalendarContract.Calendars.ALLOWED_ATTENDEE_TYPES, CalendarContract.Attendees.TYPE_NONE)
-    }) ?: run {
-        Log.e("newCalendar", "Failed to add calendar \"$name\"")
-        return@newCalendar null
     }
+}
 
-    return InternalUserCalendar(
-        id = ContentUris.parseId(newCalUri),
-        name = name,
-        accountName = accountName,
-        color = color,
-        sync = false,
-        importedFrom = null
-    )
+/** Will create calendar in Content Provider if it doesn't yet exist */
+fun CalendarPermissionScope.writeFileDataToCalendar(name: String, filesDir: Path) {
+    try {
+        this.newCalendar(name, Color(DEFAULT_CALENDAR_COLOR)) // TODO: use color from file
+    } catch (e: ElementExistsException) {
+
+    }
+    // TODO: parse file contents and add them to the Content Provider
+    // TODO: add to list without adding to provider
 }
 
 fun CalendarPermissionScope.editCalendar(id: Long, newName: String? = null, newColor: Color? = null, sync: Boolean? = null): Boolean {
