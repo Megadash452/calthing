@@ -1036,6 +1036,6 @@ fun SpinnerPreview() {
 @Composable
 fun CalendarPermissionRationaleDialogPreview() {
     CalProvExampleTheme {
-        CalendarRationaleDialog()
+        PermissionRationaleDialog()
     }
 }

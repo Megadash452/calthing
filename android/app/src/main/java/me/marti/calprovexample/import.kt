@@ -5,16 +5,14 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
-import me.marti.calprovexample.calendar.newCalendar
+import kotlinx.coroutines.runBlocking
 import me.marti.calprovexample.calendar.writeFileDataToCalendar
 import me.marti.calprovexample.ui.CALENDAR_DOCUMENT_MIME_TYPE
 import me.marti.calprovexample.ui.CalendarData
-import me.marti.calprovexample.ui.CalendarPermissionScope
 import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
 import me.marti.calprovexample.ui.MainActivity
 import java.io.File
 import java.io.FileNotFoundException
-import java.nio.file.Path
 
 /** A conflict occurred while importing a file and requires user intervention.
  * Contains data that will be used to show a dialog.
@@ -50,6 +48,7 @@ fun MainActivity.importFiles(uris: List<Uri>) {
         println("User picked file: $uri")
 
         val fileName = uri.fileName()!!
+        // TODO: use userCalendars.addFile() instead
         val result: ImportFileResult = this.openFd(uri)?.use { file ->
             DavSyncRs.importFileInternal(file.fd, fileName, this.filesDir.path)
         } ?: continue
@@ -78,8 +77,12 @@ internal fun MainActivity.abortImport(fileName: String) {
 /** Creates the file in the external **syncDir** and writes the contents from the respective file in internal app storage.
  * Helper function to avoid repeating code */
 fun MainActivity.importExternal(fileName: String, syncDir: Uri) {
+    val name = fileNameWithoutExtension(fileName)
     this.copyToExternalFile(fileName, syncDir)
-    this.addImportedCalendar(fileNameWithoutExtension(fileName))
+    this.userCalendars.value?.add(CalendarData(name, Color(DEFAULT_CALENDAR_COLOR)))
+    this.calendarPermission.launch {
+        this.writeFileDataToCalendar(name, this@importExternal.filesDir)
+    }
 }
 
 /** Finish importing a file that caused a conflict (because a file with that name already exists),
@@ -118,10 +121,11 @@ fun MainActivity.finishImportOverwrite(fileUri: Uri) {
     val fileName = fileUri.fileName()!!
     val name = fileNameWithoutExtension(fileName)
 
-    // TODO: show snack-bar to undo overwrite import (merge with MainActivity.deleteCalendar)
-
     // Delete calendar from view list
-    this.userCalendars.value?.remove(name)
+    this.userCalendars.value?.let { userCalendars ->
+        userCalendars.remove(name, blocking = true)
+        this.calendarWorkThread.execute { runBlocking { userCalendars.undoDeleteSnackBar(name) } }
+    }
 
     // Import files normally
     when (this.openFd(fileUri)?.use { file ->
@@ -172,14 +176,6 @@ fun MainActivity.deleteFiles(fileName: String) {
     }
 }
 
-/** Adds the newly imported calendar to the content provider and triggers a recomposition with [userCalendars][MainActivity.userCalendars]. */
-private fun MainActivity.addImportedCalendar(name: String, color: Color = Color(DEFAULT_CALENDAR_COLOR)) {
-    this.userCalendars.value?.add(CalendarData(name, color))
-    this.calendarPermission.run {
-        this.writeFileDataToCalendar(name, this@addImportedCalendar.filesDir)
-    }
-}
-
 /** Create the files in internal and external storage for a new Calendar the user created.
  * Only creates the files if syncDir is initialized, otherwise does nothing.
  *
@@ -211,6 +207,7 @@ fun MainActivity.createFiles(fileName: String, color: Color, id: Long? = null) {
     }
     // Create file in syncDir in shared storage
     try {
+        // TODO: check if file exists before creating
         DocumentsContract.createDocument(this.contentResolver,
             syncDir.join(dest),
             CALENDAR_DOCUMENT_MIME_TYPE,
@@ -255,7 +252,7 @@ fun MainActivity.mergeDirs(syncDir: Uri) {
     // Add calendars from external directory to Content Provider
     // Calendars in internal dir are should already be in the Content Provider, so no need to do this for copyToExternal too.
     if (this.calendarPermission.hasPermission())
-        this.calendarPermission.run {
+        this.calendarPermission.runOrFail {
             for (file in copyToInternal)
                 writeFileDataToCalendar(fileNameWithoutExtension(file.name!!), this@mergeDirs.filesDir)
             this@mergeDirs.userCalendars.value?.syncWithProvider()
