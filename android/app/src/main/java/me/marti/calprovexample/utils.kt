@@ -3,16 +3,17 @@ package me.marti.calprovexample
 import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
-import android.provider.DocumentsContract
 import android.util.Log
 import androidx.core.net.toUri
-import me.marti.calprovexample.ui.CALENDAR_DOCUMENT_MIME_TYPE
+import kotlinx.coroutines.runBlocking
 import me.marti.calprovexample.ui.MainActivity
+import me.marti.calprovexample.ui.SuspendDialog
 import java.net.URLEncoder
+import java.util.concurrent.ExecutorService
 import androidx.compose.ui.graphics.Color as ComposeColor
 import java.io.File as Path
 
-val ILLEGAL_FILE_CHARACTERS = arrayOf('/', '*')
+val ILLEGAL_FILE_CHARACTERS = arrayOf('/', '*', ':')
 
 /** A **`List<T>`** grouped by values **`G`**, which are members of **`T`**. */
 typealias GroupedList<G, T> = Map<G, List<T>>
@@ -132,6 +133,16 @@ fun Color(color: androidx.compose.ui.graphics.Color): Color {
     return Color(color.value.toInt())
 }
 
+/** Calls [execute()][ExecutorService.execute], running [command] in a *coroutine context*.
+ * Can *optionally* show a [Dialog][SuspendDialog] with a **message** while [command] runs. */
+fun ExecutorService.launch(msg: String? = null, command: suspend () -> Unit) {
+    this.execute { runBlocking {
+        msg?.let { SuspendDialog.show(it) }
+        command()
+        msg?.let { SuspendDialog.close() }
+    } }
+}
+
 /** Get the file name for an URI that is a file or directory path.
  *
  * Returns `NULL` if the URI is not a path. */
@@ -192,33 +203,6 @@ fun MainActivity.openFd(uri: Uri, perm: String = "r"): ParcelFileDescriptor? {
         Log.e("openFd", "Error opening file descriptor for \"$uri\": $e")
         this.showToast("Error opening \"${uri.lastPathSegment}\"")
         null
-    }
-}
-
-/** Copy the contents of a real file in the file system to a file in shared storage (uses content provider).
- * Creates the file with the same *file name*.
- *
- *  @param fileName The name of the file (e.g. `"calendar.ics"`). The path of the file will be derived from its *file extension*.
- *  @param syncDir Directory containing external files. See [MainActivity.syncDir]. */
-fun MainActivity.copyToExternalFile(fileName: String, syncDir: Uri) {
-    // THIS IS THE ONLY WAY TO CREATE A FILE IN EXTERNAL STORAGE, EVEN IF YOU HAVE WRITE PERMISSIONS. WHY!!!!
-    // AND I CANT OPEN A FILE IN THE DIRECTORY, EVEN IF I HAVE THE FILE DESCRIPTOR
-    val externalFileUri = DocumentsContract.createDocument(this.contentResolver,
-        syncDir.join(destinationDir(fileName)),
-        CALENDAR_DOCUMENT_MIME_TYPE,
-        fileNameWithoutExtension(fileName)
-    ) ?: run {
-        abortImport(fileName)
-        return
-    }
-
-    this.openFd(externalFileUri, "w")?.use { externalFile ->
-        DavSyncRs.importFileExternal(externalFile.fd, fileName, this.filesDir.path)
-    }?.let {
-        if (it) Unit else null // Run abort code if result is false
-    } ?: run {
-        abortImport(fileName)
-        return
     }
 }
 

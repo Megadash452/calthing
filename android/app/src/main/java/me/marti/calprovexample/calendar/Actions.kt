@@ -154,14 +154,22 @@ fun CalendarPermissionScope.internalUserCalendars(): List<InternalUserCalendar>?
 
 /** Get data about a Calendar owned by this app. */
 fun CalendarPermissionScope.getData(id: Long): InternalUserCalendar? {
-    val cur = this.context.getCursor<DisplayCalendarProjection>(
+    return this.context.getCursor<DisplayCalendarProjection>(
         CalendarContract.Calendars.CONTENT_URI.withId(id)
-    ) ?: return null
-
-    cur.moveToNext()
-    val result = InternalUserCalendar(cur)
-    cur.close()
-    return result
+    )?.use { cursor ->
+        cursor.moveToFirst()
+        InternalUserCalendar(cursor)
+    }
+}
+fun CalendarPermissionScope.getData(name: String): InternalUserCalendar? {
+    return this.context.getCursor<DisplayCalendarProjection>(
+        CalendarContract.Calendars.CONTENT_URI,
+        "${DisplayCalendarProjection.DISPLAY_NAME.column} = ?",
+        arrayOf(name)
+    )?.use { cursor ->
+        cursor.moveToFirst()
+        InternalUserCalendar(cursor)
+    }
 }
 
 

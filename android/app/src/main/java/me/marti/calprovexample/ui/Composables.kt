@@ -48,7 +48,9 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
@@ -87,6 +89,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
@@ -103,6 +106,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
 import kotlinx.coroutines.channels.Channel
 import me.marti.calprovexample.NonEmptyList
@@ -110,6 +114,7 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.tryMap
+import me.marti.calprovexample.ui.AsyncDialog.Dialog
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.Color as InternalColor
 
@@ -847,7 +852,9 @@ fun PlainTooltipBox(modifier: Modifier = Modifier, enabled: Boolean = true, tool
     )
 }
 
-/** A dialog with *Cancel/Confirm* buttons that can be shown while waiting for a response from the user. */
+/** A dialog with *Cancel/Confirm* buttons that can be shown while waiting for a response from the user.
+ *
+ * [Dialog] must be included in the **Activity**'s composition for it to be rendered. */
 object AsyncDialog {
     /** Show a dialog with a message and wait for a response.
      * @return **`true`** when user clicks *Ok*, and **`false`** when user dismisses dialog. */
@@ -917,6 +924,38 @@ object AsyncDialog {
                     )
                 }
                 is Content.Custom -> it.dialog(cancel)
+            }
+        }
+    }
+}
+
+/** A Dialog that shows a [Spinner][CircularProgressIndicator] and a **message** while work is being done.
+ *
+ * [Dialog] must be included in the **Activity**'s composition for it to be rendered.*/
+object SuspendDialog {
+    fun show(message: String) { this.message = message  }
+    fun close() { this.message = null }
+
+    private var message: String? by mutableStateOf(null)
+
+    @Composable
+    fun Dialog() {
+        this.message?.let { text ->
+            // Set dismissOnBackPress to false so that the dialog doesn't eat the BackButton event
+            androidx.compose.ui.window.Dialog({}, DialogProperties(dismissOnBackPress = false)) {
+                Surface(
+                    shape = MaterialTheme.shapes.large,
+                    tonalElevation = AlertDialogDefaults.TonalElevation,
+                ) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            strokeCap = StrokeCap.Round,
+                            strokeWidth = 5.dp
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(text)
+                    }
+                }
             }
         }
     }
@@ -1029,13 +1068,14 @@ fun GreetingNoPermPreview() {
 @Composable
 fun SpinnerPreview() {
     CalProvExampleTheme {
-        CalendarSuspendDialog("Waiting for something...")
+        SuspendDialog.show("Waiting for something...")
+        SuspendDialog.Dialog()
     }
 }
 @Preview(widthDp = PREVIEW_WIDTH)
 @Composable
 fun CalendarPermissionRationaleDialogPreview() {
     CalProvExampleTheme {
-        PermissionRationaleDialog()
+        CalendarRationaleDialog()
     }
 }
