@@ -77,7 +77,7 @@ where V: PropertyKey<K>, E: ValueEditor<V> {
 
     class MutableEntries<K, V, E>(private val parentMap: MutableMapList<K, V, E>): MutableSet<MutableMap.MutableEntry<K, V>>
     where V: PropertyKey<K>, E: ValueEditor<V> {
-        override val size: Int = this.parentMap.size
+        override val size: Int get() = this.parentMap.size
 
         override fun iterator() = MutableEntriesIterator(this.parentMap)
 
@@ -129,7 +129,7 @@ where V: PropertyKey<K>, E: ValueEditor<V> {
 
     class MutableKeys<K, V, E>(private val parentMap: MutableMapList<K, V, E>): MutableSet<K>
     where V: PropertyKey<K>, E: ValueEditor<V> {
-        override val size: Int = this.parentMap.size
+        override val size: Int get() = this.parentMap.size
 
         override fun iterator() = MutableKeysIterator(this.parentMap)
 

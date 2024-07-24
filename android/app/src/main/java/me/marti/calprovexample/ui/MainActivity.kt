@@ -155,8 +155,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Register for file picker intent. */
-    // TODO: Use ActivityResultContracts.GetContent instead
-    private val importFilesIntent = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+    private val importFilesIntent = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isEmpty()) {
             println("OpenFiles: User cancelled the file picker.")
             return@registerForActivityResult
@@ -346,7 +345,7 @@ class MainActivity : ComponentActivity() {
                     AsyncDialog.showNoCancel("Select file to import")
                 }
                 // The ACTION_OPEN_DOCUMENT Intent takes the MIME Types of files that can be opened
-                importFilesIntent.launch(arrayOf(CALENDAR_DOCUMENT_MIME_TYPE))
+                importFilesIntent.launch(CALENDAR_DOCUMENT_MIME_TYPE)
             }
         },
     )
@@ -728,7 +727,7 @@ class MutableCalendarsList(
 
     // MutableMap and List overrides
 
-    override val size: Int = this.list.size
+    override val size: Int get() = this.list.size
     override fun get(index: Int): InternalUserCalendar = this.list[index]
     override fun isEmpty(): Boolean = this.list.isEmpty()
     override fun iterator(): Iterator<InternalUserCalendar>  = this.list.iterator()
