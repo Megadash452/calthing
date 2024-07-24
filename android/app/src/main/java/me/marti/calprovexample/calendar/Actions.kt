@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.core.database.getLongOrNull
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.ElementExistsException
+import me.marti.calprovexample.PropertyKey
 import me.marti.calprovexample.R
 import me.marti.calprovexample.ui.CalendarPermissionScope
 import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
@@ -22,7 +23,9 @@ open class UserCalendarListItem(
     val name: String,
     val accountName: String,
     val color: Color,
-)
+): PropertyKey<String> {
+    override val key: String = this.name
+}
 // Two sides of the same coin.
 /** Display data about a calendar that the user can import (copy) to sync with this App.
  *

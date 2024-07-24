@@ -29,7 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.core.net.toUri
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -43,11 +42,13 @@ import me.marti.calprovexample.DavSyncRs
 import me.marti.calprovexample.ElementExistsException
 import me.marti.calprovexample.ILLEGAL_FILE_CHARACTERS
 import me.marti.calprovexample.ImportFileResult
+import me.marti.calprovexample.MutableMapList
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.PreferenceKey
 import me.marti.calprovexample.R
 import me.marti.calprovexample.StringLikeUserPreference
 import me.marti.calprovexample.UserPreference
+import me.marti.calprovexample.ValueEditor
 import me.marti.calprovexample.calendar.AllData
 import me.marti.calprovexample.calendar.ExternalUserCalendar
 import me.marti.calprovexample.calendar.InternalUserCalendar
@@ -230,7 +231,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     syncCalendarSwitch = { id, sync -> userCalendars.value?.edit(id) { this.sync = sync } },
                                     editCalendar = { id, name, color -> openAction = Actions.EditCalendar(id, name, color) },
-                                    deleteCalendar = { name -> userCalendars.value?.delete(name) }
+                                    deleteCalendar = { name -> userCalendars.value?.remove(name) }
                                 )
                             }
 
@@ -295,7 +296,7 @@ class MainActivity : ComponentActivity() {
                     NewCalendarAction(
                         close = close,
                         submit = { name, color ->
-                            userCalendars.value?.add(CalendarData(name, color))
+                            userCalendars.value?.add(CalendarEditor(name, color))
                         }
                     )
                 }
@@ -381,13 +382,28 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-data class CalendarData(
-    val name: String,
-    val color: Color,
-)
+/** Used for editing calendar in [MutableCalendarsList.edit]. */
+class CalendarEditor(
+    var name: String,
+    var color: Color,
+    var sync: Boolean = false
+): ValueEditor<InternalUserCalendar> {
+    constructor(cal: InternalUserCalendar) : this(
+        name = cal.name,
+        color = cal.color,
+        sync = cal.sync
+    )
+    override fun editFrom(value: InternalUserCalendar) {
+        this.name = value.name
+        this.color = value.color
+        this.sync = value.sync
+    }
+}
 
-class MutableCalendarsList(private val activity: MainActivity): List<InternalUserCalendar> { // TODO: change to MutableMap??
-    private val list: SnapshotStateList<InternalUserCalendar> = mutableStateListOf()
+class MutableCalendarsList(
+    private val activity: MainActivity
+): MutableMapList<String, InternalUserCalendar, CalendarEditor> {
+    private val list = mutableStateListOf<InternalUserCalendar>()
     init {
         activity.calendarPermission.launchOrFail {
             this@MutableCalendarsList.syncWithProvider()
@@ -408,21 +424,13 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
         }
     }
 
-    override val size: Int
-        get() = this.list.size
-
-    override fun get(index: Int): InternalUserCalendar = this.list[index]
-
-    // operator fun set(index: Int, element: CalendarData): CalendarData {
-    // }
-
     private fun calDeletedSnackbar(name: String) {
         activity.showSnackbar("Calendar deleted") { result ->
             when (result) {
                 // Restore Calendar when user presses "Undo"
-                SnackbarResult.ActionPerformed -> this@MutableCalendarsList.restore(name)
+                SnackbarResult.ActionPerformed -> this.restore(name)
                 // Fully delete Calendar by deleting file in recycle bin
-                SnackbarResult.Dismissed -> this@MutableCalendarsList.finishRemove(name)
+                SnackbarResult.Dismissed -> this.finishRemove(name)
             }
         }
     }
@@ -436,7 +444,7 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
             for (tmpCal in calendars) {
                 val cal =
                     // Check whether the selected calendar would have conflict with another calendar
-                    if (this@MutableCalendarsList.find { cal -> cal.name == tmpCal.name } != null) {
+                    if (this@MutableCalendarsList.containsKey(tmpCal.name)) {
                         // In case of conflict, ask user whether to rename, overwrite, or don't import at all
                         var finalName: String? = null
                         AsyncDialog.showDialog { close ->
@@ -474,35 +482,23 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
         }
     }
 
-    /** Delete the calendar and show a **snack-bar** that can undo the deletion.
-     *
-     * Moves the deleted calendar to the `"deleted"` directory (like a recycle bin) before fully deleting it.
-     * The file is only fully deleted after the snack-bar is dismissed or app is reopened.
-     *
-     * @throws NoSuchElementException if the list does not have a calendar with this **name**. */
-    fun delete(name: String) {
-        this.remove(name)
-        this.calDeletedSnackbar(name)
-    }
-
-    /** Used for editing calendar in [edit]. */
-    class CalendarEditor(
-        var name: String,
-        var color: Color,
-        var sync: Boolean
-    )
-
-    /** Change some data about the Calendar. All edits are reflected in the files and in the Content Provider. */
+    /** Like [MutableMapList.edit], but uses the [ID][id] of the calendar as the key instead of the **name**. */
     fun edit(id: Long, editor: CalendarEditor.() -> Unit) {
-        this.edit(this.indexOfFirst { it.id == id }, editor)
+        this.edit(
+            this.find { cal -> cal.id == id }?.name
+                ?: throw NoSuchElementException("There is no calendar with ID \"$id\""),
+            editor
+        )
     }
-    /** Change some data about the Calendar. All edits are reflected in the files and in the Content Provider. */
-    fun edit(index: Int, editor: CalendarEditor.() -> Unit) {
-        activity.calendarWorkThread.launch {
-            val old = this[index]
-            val new = CalendarEditor(old.name, old.color, old.sync)
-            editor(new)
+    override fun edit(key: String, editor: CalendarEditor.() -> Unit) {
+        val index = this.indexOfFirst { cal -> cal.name == key }
+        if (index == -1)
+            throw NoSuchElementException("There is no calendar named \"$key\"")
+        val old = this[index]
+        val new = CalendarEditor(old)
+        editor(new)
 
+        activity.calendarWorkThread.launch {
             // Rename files
             if (old.name != new.name) {
                 // Check if name is unique
@@ -516,9 +512,11 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
                 )
                 // Rename external file
                 activity.syncDir.value?.also { syncDir ->
-                    DocumentsContract.renameDocument(activity.contentResolver,
+                    DocumentsContract.renameDocument(
+                        activity.contentResolver,
                         externalFile(syncDir, "${old.name}.ics"), "${new.name}.ics"
-                    ) ?: throw Exception("Error renaming file in external directory from \"${old.name}.ics\" to \"${new.name}.ics\"")
+                    )
+                        ?: throw Exception("Error renaming file in external directory from \"${old.name}.ics\" to \"${new.name}.ics\"")
                 } ?: run {
                     Log.w("MutableCalendarList.edit", "syncDir is NULL; can't rename external file")
                     return@launch
@@ -535,20 +533,11 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
             }
 
             // Change data in the list
-            this.list[index] = old.copy(name=new.name, color=new.color, sync=new.sync)
+            this.list[index] = old.copy(name = new.name, color = new.color, sync = new.sync)
         }
     }
 
-    /** [Add][addAt] an element to the end of the list. */
-    fun add(element: CalendarData): Boolean { this.addAt(this.size, element); return true }
-    /** Inserts an [element] into the list at some [index].
-     * @throws IndexOutOfBoundsException when [index] falls outside the range *0 <= i <= [size]*.
-     * Note that when index == size is equivalent to calling [add] (element), but not if index > size.
-     * @throws ElementExistsException if a calendar with the same **name** is already in the list.
-     * @throws Exception if the [element] could not be added because of some internal error.
-     * (e.g. creating files, content provider, etc.) */
-    @Throws(IndexOutOfBoundsException::class, ElementExistsException::class)
-    fun addAt(index: Int, element: CalendarData) {
+    override fun add(element: CalendarEditor) {
         activity.calendarWorkThread.launch {
             val name = element.name
             val fileName = "$name.ics"
@@ -562,15 +551,8 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
             // Create entry in Content Provider
             activity.calendarPermission.runOrFail {
                 this.newCalendar(name, element.color)?.let { newCal ->
-                    this@MutableCalendarsList.run {
-            // Add Calendar to the list
-                        if (index > this.size)
-                            throw IndexOutOfBoundsException("Can't insert at index $index in a list with ${this.size} elements")
-                        else if (index == this.size)
-                            this.list.add(newCal)
-                        else
-                            this.list.add(index, newCal)
-                    }
+                    // Add Calendar to the list
+                    this@MutableCalendarsList.list.add(newCal)
                 } ?: throw Exception("Error creating new calendar")
                 // Fill data in Content Provider
                 this.writeFileDataToCalendar(name, activity.filesDir)
@@ -578,8 +560,10 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
         }
     }
 
-    /** Add a Calendar from a file in Shared Storage */
-    internal suspend fun addFile(fileUri: Uri) {
+    /** Add a Calendar from a file in Shared Storage.
+     * @throws Exception if the Calendar could not be added because of some internal error.
+     * (e.g. creating files, content provider, etc.) */
+    internal fun addFile(fileUri: Uri) {
         activity.calendarWorkThread.launch {
             val syncDir = activity.syncDir.value ?: run {
                 Log.w("createFiles", "syncDir is NULL; Can't add external file; Will add it later")
@@ -614,9 +598,9 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
                         /* Canceled */0 -> return@launch
                         /* Rename */1 -> { }
                         /* Overwrite */2 -> {
-                            this.removeBlocking(finalName)
-                            this.calDeletedSnackbar(finalName)
-                        }
+                        this.removeBlocking(finalName)
+                        this.calDeletedSnackbar(finalName)
+                    }
                     }
 
                     // Retry import under new conditions
@@ -646,6 +630,7 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
             activity.copyToExternalFile(fileName, syncDir)
             // Create entry in Content Provider
             activity.calendarPermission.runOrFail {
+                // Color doesn't matter, as it will be assigned in writeFileDataToCalendar
                 this.newCalendar(name, Color(0)) ?: throw Exception("Error creating Calendar from File")
                 this.writeFileDataToCalendar(name, activity.filesDir)
                 // Add Calendar to the list
@@ -656,43 +641,23 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
         }
     }
 
-    /** Same as [removeAt], but finds the calendar to delete by **name**, since all names are unique.
-     *
-     * This function WILL NOT show a snack-bar for the user to undo their action.
-     * You should use [delete] instead.
-     *
-     * @throws NoSuchElementException if the list does not have a calendar with this **name**. */
-    fun remove(name: String) {
-        activity.calendarWorkThread.launch { this.removeBlocking(name) }
-    }
-    /** Like [remove], but prevents the unnecessary launch of another job when using it internally. */
-    private suspend fun removeBlocking(name: String) {
-        val index = this.indexOfFirst { it.name == name }
-        if (index == -1)
-            throw NoSuchElementException("No element in this list has name \"$name\"")
-        this.removeAt(index)
-    }
-    fun removeAll(names: Collection<String>) { activity.calendarWorkThread.launch {
-        names.forEach { name -> this.removeBlocking(name) }
-    } }
-    fun clear() {
-        this.onEachIndexed { i, _ -> activity.calendarWorkThread.launch { this.removeAt(i) } }
-    }
-    /** Removes an element from the list that is found at some [index].
+    /** Removes a calendar with **name** from the list.
      *
      * Puts calendar in a "recycle bin" so that it can be restored later.
      *
-     * This function WILL NOT show a snack-bar for the user to undo their action.
-     * You should use [delete] instead.
-     *
      * @return The element that was removed
-     * @throws IndexOutOfBoundsException when [index] falls outside the range *0 <= i < [size]*
+     * @throws NoSuchElementException if there is no calendar with this [name].
      * @throws Exception if the element could not be removed because of some internal error.
      * (e.g. deleting files, content provider, etc.) */
-    @Throws(IndexOutOfBoundsException::class)
-    private suspend fun removeAt(index: Int): InternalUserCalendar {
-        val name = this[index].name
+    @Throws(NoSuchElementException::class)
+    private suspend fun removeBlocking(name: String) {
+        val index = this.indexOfFirst { cal -> cal.name == name }
+        if (index == -1)
+            throw NoSuchElementException("There is no calendar named \"$name\"")
         val fileName = "$name.ics"
+
+        // Delete the Calendar from the list
+        this.list.removeAt(index)
 
         // Put this first in case there is a bug where the file doesn't exist, the entry will no longer be showed.
         // Delete the Calendar from the Content Provider
@@ -710,9 +675,6 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
         }
         // Delete the Calendar files
         activity.deleteFiles(fileName)
-
-        // Delete the Calendar from the list
-        return this.list.removeAt(index)
     }
 
     /** Fully delete the Calendar, that is, delete the copy of the file that was moved to the "recycle bin". */
@@ -740,9 +702,8 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
             throw Exception("Tried to restore a calendar file that does not exist in the recycle bin")
 
         // A calendar with the same name could exist, because the one in recycle bin was overwritten.
-        this.indexOfFirst { cal -> cal.name == name }.let { index ->
-            if (index != -1)
-                this.removeAt(index)
+        this.find { cal -> cal.name == name }?.let {
+            this.remove(name)
         }
 
         // Copy file to internal dir
@@ -765,15 +726,28 @@ class MutableCalendarsList(private val activity: MainActivity): List<InternalUse
         }
     }
 
-    override fun isEmpty(): Boolean = this.list.isEmpty()
+    // MutableMap and List overrides
 
-    override fun iterator(): MutableIterator<InternalUserCalendar> = this.list.iterator()
-    override fun listIterator(): MutableListIterator<InternalUserCalendar> = this.list.listIterator()
-    override fun listIterator(index: Int): MutableListIterator<InternalUserCalendar> = this.list.listIterator(index)
-    override fun subList(fromIndex: Int, toIndex: Int): MutableList<InternalUserCalendar> = throw NotImplementedError("WILL NOT IMPLEMENT")
-    // fun retainAll(elements: Collection<InternalUserCalendar>): Boolean = throw NotImplementedError("WILL NOT IMPLEMENT")
-    override fun lastIndexOf(element: InternalUserCalendar): Int = this.list.lastIndexOf(element)
-    override fun indexOf(element: InternalUserCalendar): Int = this.list.indexOf(element)
-    override fun containsAll(elements: Collection<InternalUserCalendar>): Boolean = this.list.containsAll(elements)
+    override val size: Int = this.list.size
+    override fun get(index: Int): InternalUserCalendar = this.list[index]
+    override fun isEmpty(): Boolean = this.list.isEmpty()
+    override fun iterator(): Iterator<InternalUserCalendar>  = this.list.iterator()
+    override fun listIterator(): ListIterator<InternalUserCalendar>  = this.list.listIterator()
+    override fun listIterator(index: Int): ListIterator<InternalUserCalendar>  = this.list.listIterator(index)
+    override fun subList(fromIndex: Int, toIndex: Int): List<InternalUserCalendar>  = this.list.subList(fromIndex, toIndex)
+    override fun lastIndexOf(element: InternalUserCalendar): Int  = this.list.lastIndexOf(element)
+    override fun indexOf(element: InternalUserCalendar): Int  = this.list.indexOf(element)
     override fun contains(element: InternalUserCalendar): Boolean = this.list.contains(element)
+    override fun containsAll(elements: Collection<InternalUserCalendar>): Boolean  = this.list.containsAll(elements)
+
+    override fun clear() {
+        activity.calendarWorkThread.launch { this.list.forEach { cal ->  this.removeBlocking(cal.name) } }
+    }
+    override fun remove(key: String): InternalUserCalendar? {
+        if (!this.containsKey(key))
+            return null
+        activity.calendarWorkThread.launch { this.removeBlocking(key) }
+        this.calDeletedSnackbar(key)
+        return this[key]
+    }
 }
