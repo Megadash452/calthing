@@ -1,3 +1,5 @@
+use std::panic::UnwindSafe;
+
 use jni::{JNIEnv, objects::{JObject, JValue, JString}};
 
 pub static mut ENV: Option<*mut JNIEnv<'static>> = None;
@@ -68,4 +70,16 @@ pub fn get_nullable_string(env: &JNIEnv, arg: JString) -> Option<String> {
     unsafe { env.get_string_unchecked(&arg) }
         .ok()
         .map(|s| String::from(s))
+}
+
+/// Runs a Rust function, and returns its value if successful.
+/// If the function panics, the panic is caught and a Java Exception will be thrown and [None] will be returned.
+pub fn catch_throw<R>(env: &mut JNIEnv, f: impl FnOnce() -> R + UnwindSafe) -> Option<R> {
+    match std::panic::catch_unwind(f) {
+        Ok(r) => Some(r),
+        Err(_) => {
+            env.throw_new("me/marti/calprovexample/RustPanic", "Rust had a panic!").unwrap();
+            None
+        }
+    }
 }
