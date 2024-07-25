@@ -3,13 +3,14 @@
 
 mod utils;
 mod fs;
+use jni_macros::{jni_fn, package};
 use utils::*;
 use fs::*;
 
 use std::{collections::HashMap, fs::{DirEntry, File}, io::ErrorKind, path::{Path, PathBuf}};
-use jni::{
-    objects::{JClass, JString}, JNIEnv
-};
+use jni::objects::JString;
+
+package!("me.marti.calprovexample");
 
 // const NULL: jobject = std::ptr::null_mut();
 /// These are the names of the directories where synced data will be stored
@@ -30,14 +31,13 @@ const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
 // TODO: will change so that it is automatically detected whether to use "calendar" or "contacts" depending on the file type.
 const SUFFIX_DIR: &str = "calendars";
 
-#[no_mangle]
-pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_initialize_1dirs<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, external_dir_fd: i32, app_dir: JString<'local>) {
+#[jni_fn]
+pub fn initialize_dirs(external_dir_fd: i32, app_dir: JString) {
     let app_dir = PathBuf::from(get_string(&env, app_dir));
     // FIXME: for some reason, on my phone, libc::readdir() only returns directories (excluding . and ..), while on emulator it returns all files....
     // FIXME: Also, libc::seekdir does not work at all in the emulator. was using read
-    match initialize_dirs(external_dir_fd, &app_dir) {
-        Ok(v) => v,
-        Err(error) => env.throw(error).unwrap()
+    if let Some(Err(err)) = catch_throw(&mut env, || initialize_dirs(external_dir_fd, &app_dir)) {
+        env.throw(err).unwrap()
     }
 }
 
@@ -91,15 +91,12 @@ fn initialize_dirs(external_dir_fd: i32, app_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[no_mangle]
-pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_merge_1dirs<'local>(mut env: JNIEnv<'static>, _class: JClass<'local>, external_dir_fd: i32, app_dir: JString<'local>) {
+#[jni_fn]
+pub fn merge_dirs(external_dir_fd: i32, app_dir: JString) {
     let app_dir = PathBuf::from(get_string(&env, app_dir));
-    unsafe { ENV = Some(&mut env) }
-    match merge_dirs(external_dir_fd, &app_dir) {
-        Ok(v) => v,
-        Err(error) => env.throw(error).unwrap()
+    if let Some(Err(err)) = catch_throw(&mut env, || merge_dirs(external_dir_fd, &app_dir)) {
+        env.throw(err).unwrap()
     }
-    unsafe { ENV = None }
 }
 fn merge_dirs(external_dir_fd: i32, app_dir: &Path) -> Result<(), String> {
     let external_dir = fdpath(external_dir_fd)
@@ -114,8 +111,6 @@ fn merge_dirs(external_dir_fd: i32, app_dir: &Path) -> Result<(), String> {
     // TODO: external files always empty... (refer to comment of Java_me_marti_calprovexample_DavSyncRs_initialize_1dirs)
     let external_files = ls(&external_dir.join("calendars"))?;
     let internal_files = ls(&app_dir.join("calendars"))?;
-    println!("external files: {external_files:?}");
-    println!("internal files: {internal_files:?}");
     Ok(())
 }
 
@@ -124,23 +119,25 @@ pub enum ImportResult {
     Error, Success, FileExists
 }
 // Getting s a file descriptor seems to be the only way to open a file not owned by the app, even with permission.
-#[no_mangle]
-pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file_1internal<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, file_fd: i32, file_name: JString<'local>, app_dir: JString<'local>) -> ImportResult {
+#[jni_fn]
+pub fn import_file_internal(file_fd: i32, file_name: JString, app_dir: JString) -> ImportResult {
     let file_name = get_string(&env, file_name);
     // The App's internal directory where the process has permissions to read/write files.
     let app_dir = PathBuf::from(get_string(&env, app_dir));
 
-    match import_file_internal(file_fd, &file_name, &app_dir) {
-        Ok(v) => if v {
-            ImportResult::Success
-        } else {
-            ImportResult::FileExists
-        },
-        Err(error) => {
-            env.throw(error).unwrap();
-            ImportResult::Error
+    if let Some(r) = catch_throw(&mut env, || import_file_internal(file_fd, &file_name, &app_dir)) {
+        match r {
+            Ok(v) => if v {
+                ImportResult::Success
+            } else {
+                ImportResult::FileExists
+            },
+            Err(error) => {
+                env.throw(error).unwrap();
+                ImportResult::Error
+            }
         }
-    }
+    } else { ImportResult::Error }
 }
 /// Copy an *`.ics`* file's content into the internal *app's directory*.
 /// 
@@ -181,17 +178,17 @@ fn import_file_internal(file_fd: i32, file_name: &str, app_dir: &Path) -> Result
     Ok(true)
 }
 
-#[no_mangle]
-pub extern "system" fn Java_me_marti_calprovexample_DavSyncRs_import_1file_1external<'local>(mut env: JNIEnv<'local>, _class: JClass<'local>, external_file_fd: i32, file_name: JString<'local>, app_dir: JString<'local>) {
+#[jni_fn]
+pub fn import_file_external(external_file_fd: i32, file_name: JString, app_dir: JString) {
     let file_name = get_string(&env, file_name);
     // The App's internal directory where the process has permissions to read/write files.
     let app_dir = PathBuf::from(get_string(&env, app_dir));
 
-    if let Err(error) = import_file_external(external_file_fd, &file_name, &app_dir) {
+    if let Some(Err(error)) = catch_throw(&mut env, || import_file_external(external_file_fd, &file_name, &app_dir)) {
         // Failed to complete import because couldn't copy to external file.
         // Delete the imported file in the internal directory.
         if let Err(error2) = std::fs::remove_file(app_dir.join(SUFFIX_DIR).join(file_name)) {
-            env.throw(format!("{error}\nCouldnt delete internal imported file: {error2}")).unwrap();
+            env.throw(format!("Couldnt delete internal imported file: {error2}")).unwrap();
         };
         env.throw(error).unwrap();
     }
