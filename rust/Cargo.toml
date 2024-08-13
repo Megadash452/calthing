@@ -11,7 +11,7 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 jni_macros = { path = "./jni_macros" }
-davsync = { path = "/home/marti/source/davsync" }
+# davsync = { path = "/home/marti/source/davsync" }
 libc = "0.2.155"
 
 # used in build.rs script
@@ -25,4 +25,3 @@ jni = { version = "0.21", default-features = false }
 opt-level = "s"
 debug = 0
 strip = "symbols"
-

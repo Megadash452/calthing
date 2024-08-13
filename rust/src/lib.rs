@@ -3,16 +3,16 @@
 
 mod utils;
 mod fs;
-use jni_macros::{jni_fn, package};
 use utils::*;
 use fs::*;
 
-use std::{collections::HashMap, fs::{DirEntry, File}, io::ErrorKind, path::{Path, PathBuf}};
-use jni::objects::JString;
+use std::{collections::HashMap, fs::File, io::ErrorKind, path::{Path, PathBuf}, ptr::NonNull};
+use jni::{objects::{JObject, JString}, sys::{_jobject, jobject}, JNIEnv};
+use jni_macros::{call, jni_fn, package};
 
 package!("me.marti.calprovexample");
 
-// const NULL: jobject = std::ptr::null_mut();
+const NULL: jobject = std::ptr::null_mut();
 /// These are the names of the directories where synced data will be stored
 const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
 
@@ -31,7 +31,7 @@ const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
 // TODO: will change so that it is automatically detected whether to use "calendar" or "contacts" depending on the file type.
 const SUFFIX_DIR: &str = "calendars";
 
-#[jni_fn]
+#[jni_fn("jni.DavSyncRs")]
 pub fn initialize_dirs(external_dir_fd: i32, app_dir: JString) {
     let app_dir = PathBuf::from(get_string(&env, app_dir));
     // FIXME: for some reason, on my phone, libc::readdir() only returns directories (excluding . and ..), while on emulator it returns all files....
@@ -41,11 +41,11 @@ pub fn initialize_dirs(external_dir_fd: i32, app_dir: JString) {
     }
 }
 
-/// Initialize the **internal** and **external** directories by creating all necessary directories (e.g. calendars and contacts directories).
-/// 
-/// ### Paramters
-/// - **dir_fd** is the *file descriptor* for the directory in shared storage the user picked to sync files.
-/// - **app_dir** is the app's internal direcotry where its files are stored.
+/// Initialize the **internal** and **external** directories by creating all necessary sub-directories (e.g. calendars and contacts directories).
+///
+/// ### Parameters
+/// - **external_dir_fd** is the *file descriptor* for the directory in shared storage the user picked to sync files.
+/// - **app_dir** is the internal directory where all of this app's files are stored.
 fn initialize_dirs(external_dir_fd: i32, app_dir: &Path) -> Result<(), String> {
     let external_dir = fdpath(external_dir_fd)
         .map_err(|error| format!("Error getting path for fd: {error}"))?;
@@ -91,26 +91,17 @@ fn initialize_dirs(external_dir_fd: i32, app_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[jni_fn]
-pub fn merge_dirs(external_dir_fd: i32, app_dir: JString) {
+#[jni_fn("jni.DavSyncRs")]
+pub fn merge_dirs(external_dir_uri: JObject, app_dir: JString, context: JObject) {
     let app_dir = PathBuf::from(get_string(&env, app_dir));
-    if let Some(Err(err)) = catch_throw(&mut env, || merge_dirs(external_dir_fd, &app_dir)) {
+    if let Some(Err(err)) = catch_throw!(&mut env, || merge_dirs(&mut env, external_dir_uri, &app_dir, context)) {
         env.throw(err).unwrap()
     }
 }
-fn merge_dirs(external_dir_fd: i32, app_dir: &Path) -> Result<(), String> {
-    let external_dir = fdpath(external_dir_fd)
-        .map_err(|error| format!("Error getting path for fd: {error}"))?;
-    fn ls(path: &Path) -> Result<Box<[DirEntry]>, String> {
-        Result::from_iter(
-            path.read_dir()
-                .map_err(|error| format!("Error opening directory: {error}"))?
-        ).map_err(|error| format!("Error reading directory entries: {error}"))
-    }
-
-    // TODO: external files always empty... (refer to comment of Java_me_marti_calprovexample_DavSyncRs_initialize_1dirs)
-    let external_files = ls(&external_dir.join("calendars"))?;
-    let internal_files = ls(&app_dir.join("calendars"))?;
+fn merge_dirs(env: &mut JNIEnv, external_dir_uri: JObject, app_dir: &Path, context: JObject) -> Result<(), String> {
+    let external_dir = ExternalDir::new(&context, external_dir_uri);
+    let entries = external_dir.entries(env);
+    println!(env, "dir entries: {entries:?}");
     Ok(())
 }
 
@@ -119,7 +110,7 @@ pub enum ImportResult {
     Error, Success, FileExists
 }
 // Getting s a file descriptor seems to be the only way to open a file not owned by the app, even with permission.
-#[jni_fn]
+#[jni_fn("jni.DavSyncRs")]
 pub fn import_file_internal(file_fd: i32, file_name: JString, app_dir: JString) -> ImportResult {
     let file_name = get_string(&env, file_name);
     // The App's internal directory where the process has permissions to read/write files.
@@ -140,19 +131,19 @@ pub fn import_file_internal(file_fd: i32, file_name: JString, app_dir: JString) 
     } else { ImportResult::Error }
 }
 /// Copy an *`.ics`* file's content into the internal *app's directory*.
-/// 
-/// A *successful* (`Ok(true)`) call to this function shold be subsequently followed by a call to [`import_file_external()`]
-/// 
+///
+/// A *successful* (`Ok(true)`) call to this function should be subsequently followed by a call to [`import_file_external()`]
+///
 /// ### Parameters
 /// **file_fd** is the *unowned* file descriptor of the file to be imported, and **file_name** is its name (including extension).
 /// For **app_dir** and **sync_dir**, pass in the base directory regardless of whether it should go to *calendars* or *contacts*.
-/// This function will append the correct path to those directories. 
-/// 
+/// This function will append the correct path to those directories.
+///
 /// ### Return
 /// Returns `false` if the file couln't be imported because a file with that name already exists in the local directory.
 fn import_file_internal(file_fd: i32, file_name: &str, app_dir: &Path) -> Result<bool, String> {
     let internal_dir = app_dir.join(SUFFIX_DIR);
-    
+
     // Ensure the destination directories are created (internal)
     std::fs::create_dir_all(&internal_dir)
         .map_err(|error| format!("Error creating directories leading up to {internal_dir:?}: {error}"))?;
@@ -178,7 +169,7 @@ fn import_file_internal(file_fd: i32, file_name: &str, app_dir: &Path) -> Result
     Ok(true)
 }
 
-#[jni_fn]
+#[jni_fn("jni.DavSyncRs")]
 pub fn import_file_external(external_file_fd: i32, file_name: JString, app_dir: JString) {
     let file_name = get_string(&env, file_name);
     // The App's internal directory where the process has permissions to read/write files.
@@ -193,7 +184,7 @@ pub fn import_file_external(external_file_fd: i32, file_name: JString, app_dir: 
         env.throw(error).unwrap();
     }
 }
-/// Write the contents of the file already imported in the *internal directory* to the file in *sync directory* (external).
+/// Write the contents of the file already imported in the *internal directory* to the new file created in *sync directory* (external).
 fn import_file_external(external_file_fd: i32, file_name: &str, app_dir: &Path) -> Result<(), String> {
     // Open the file to copy FROM in the internal directory
     let mut internal_file = std::fs::File::open(app_dir.join(SUFFIX_DIR).join(file_name))
@@ -206,4 +197,29 @@ fn import_file_external(external_file_fd: i32, file_name: &str, app_dir: &Path) 
         .map_err(|error| format!("Error copying to file in App dir: {error}"))?;
 
     Ok(())
+}
+
+#[jni_fn("jni.DavSyncRs")]
+pub fn new_calendar_from_file(context: JObject, name: JString, app_dir: JString) -> jobject {
+    match catch_throw!(&mut env, || {
+        let name = get_string(&env, name);
+        let app_dir = PathBuf::from(get_string(&env, app_dir));
+        new_calendar_from_file(name, app_dir, &mut env, context)
+    }) {
+        Some(Ok(obj)) => obj.as_ptr(),
+        Some(Err(err)) => {
+            env.throw(err).unwrap();
+            NULL
+        },
+        None => NULL
+    }
+}
+fn new_calendar_from_file(name: String, app_dir: PathBuf, env: &mut JNIEnv, context: JObject) -> Result<NonNull<_jobject>, String> {
+    // Check that a calendar with this name doesn't already exist
+    let exists = call!(static me.marti.calprovexample.jni.DavSyncRsHelpers::checkUniqueName(
+        android.content.Context(context),
+        java.lang.String(env.new_string(&name).unwrap())
+    ) -> Result<bool, String>)?;
+
+    Err("TODO: return InternalUserCalendar".to_string())
 }
