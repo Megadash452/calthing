@@ -116,6 +116,9 @@ pub fn __throw_panic(env: &mut JNIEnv, payload: Box<dyn Any + Send>) {
 /// and converts that exception to a `Err(String)` so that it can be returned using `?`.
 /// 
 /// ***Panics*** any JNI calls fails.
+/// 
+/// NOTICE: Can't call any function (including print) between the time when the exception is thrown and when `JNIEnv::exception_clear()` is called.
+/// This means that if a method call could throw, the checks (call, type, and null) should be done AFTER the exception is caught.
 // TODO: let the erorr be any type that implements `FromJThrowable`
 pub fn catch_exception(env: &mut JNIEnv) -> Result<(), String> {
     match env.exception_occurred() {
@@ -145,8 +148,6 @@ fn string_array<'local>(env: &mut JNIEnv<'local>, src: &[&str]) -> JObjectArray<
     for (i, &element) in src.iter().enumerate() {
         env.set_object_array_element(&array, i.try_into().unwrap(), env.new_string(element).unwrap()).unwrap();
     }
-    
-    
 
     array
 }
@@ -178,7 +179,7 @@ impl <'local> Cursor<'local> {
     pub fn row_count(&self, env: &mut JNIEnv) -> usize { call!((self.0).getCount() -> int) as usize }
 
     pub fn next(&self, env: &mut JNIEnv) -> bool { call!((self.0).moveToNext() -> bool) }
-    pub fn get_string<'env>(&self, env: &mut JNIEnv<'env>, index: u32) -> JString<'env> {
+    pub fn get_string(&self, env: &mut JNIEnv<'local>, index: u32) -> JString<'local> {
         call!((self.0).getString(int(index as i32)) -> java.lang.String).into()
     }
     pub fn get_int(&self, env: &mut JNIEnv, index: u32) -> i32 {
@@ -186,4 +187,9 @@ impl <'local> Cursor<'local> {
     }
 
     pub fn close(self, env: &mut JNIEnv) { call!((self.0).close() -> void) }
+}
+
+pub struct DocUri<'local>(pub JObject<'local>);
+impl <'local> DocUri<'local> {
+    
 }

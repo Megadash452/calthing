@@ -25,9 +25,9 @@ public final class DavSyncRsHelpers {
         return DocumentsContract.buildTreeDocumentUri(docUri.getAuthority(), DocumentsContract.getTreeDocumentId(docUri));
     }
 
-    static @Nullable Cursor queryChildrenOfDocument(@NonNull Context context, @NonNull Uri uri) {
-        String docId = DocumentsContract.getDocumentId(uri);
-        Uri treeUri = DocumentsContract.buildTreeDocumentUri(uri.getAuthority(), docId);
+    static Cursor queryChildrenOfDocument(@NonNull Context context, @NonNull Uri docUri) throws Exception {
+        String docId = DocumentsContract.getDocumentId(docUri);
+        Uri treeUri = getDocumentTreeUri(docUri);
         Cursor c = context.getContentResolver().query(
             DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId),
             new String[]{
@@ -37,7 +37,8 @@ public final class DavSyncRsHelpers {
             },
             "", new String[0], ""
         );
-        if (c != null) c.moveToFirst();
+        if (c == null) throw new Exception("Cursor is NULL");
+        c.moveToFirst();
         return c;
     }
 }
