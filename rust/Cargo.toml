@@ -10,9 +10,11 @@ crate-type = ["cdylib", "lib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+either = "1.13.0"
 jni_macros = { path = "./jni_macros" }
 # davsync = { path = "/home/marti/source/davsync" }
 libc = "0.2.155"
+mime_guess = "2.0.*"
 
 # used in build.rs script
 [build-dependencies]
