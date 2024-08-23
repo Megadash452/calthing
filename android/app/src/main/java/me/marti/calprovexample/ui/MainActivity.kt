@@ -38,10 +38,10 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import me.marti.calprovexample.BooleanUserPreference
 import me.marti.calprovexample.Color
-import me.marti.calprovexample.DavSyncRs
+import me.marti.calprovexample.jni.DavSyncRs
 import me.marti.calprovexample.ElementExistsException
 import me.marti.calprovexample.ILLEGAL_FILE_CHARACTERS
-import me.marti.calprovexample.ImportFileResult
+import me.marti.calprovexample.jni.ImportFileResult
 import me.marti.calprovexample.MutableMapList
 import me.marti.calprovexample.NonEmptyList
 import me.marti.calprovexample.PreferenceKey
@@ -69,7 +69,6 @@ import me.marti.calprovexample.fileNameWithoutExtension
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.internalFile
 import me.marti.calprovexample.launch
-import me.marti.calprovexample.mergeDirs
 import me.marti.calprovexample.openFd
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.writeCalendarDataToFile
@@ -130,26 +129,27 @@ class MainActivity : ComponentActivity() {
                 dirSelectChannel.trySend(false)
                 return@launch
             }
+
             // Preserve access to the directory. Otherwise, access would be revoked when app is closed.
             contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             // Convert Tree URI to an URI that can be used by the DocumentsProvider
-            val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
+            val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
 
-            this.openFd(uri)?.use { file ->
+            this.openFd(docUri)?.use { file ->
                 // Create calendar and contacts dirs in internal and external directories.
                 DavSyncRs.initialize_dirs(file.fd, this.filesDir.path)
-                // // // Copy files from internal to external, and vice versa, resolving conflicts with user
-                // DavSyncRs.merge_dirs(file.fd, this.filesDir.path)
             } ?: run {
                 dirSelectChannel.trySend(false)
                 return@launch
             }
 
-            this.mergeDirs(uri)
+            // Copy files from internal to external, and vice versa, resolving conflicts with user
+            DavSyncRs.merge_dirs(this.baseContext, docUri)
+            // this.mergeDirs(uri)
 
-            this.syncDir.value = uri
+            this.syncDir.value = docUri
             dirSelectChannel.trySend(true)
-            println("User selected $uri for synced .ics files.")
+            println("User selected $docUri for synced .ics files.")
             // If nothing works, recheck DocumentsContract and DocumentFile
         }
     }
@@ -577,6 +577,7 @@ class MutableCalendarsList(
             } ?: throw Exception(openFdError)
 
             val name = when (result) {
+                is ImportFileResult.Success -> result.calName
                 is ImportFileResult.Error -> {
                     activity.showToast(importErrorToast)
                     return@launch
@@ -620,7 +621,6 @@ class MutableCalendarsList(
 
                     finalName
                 }
-                is ImportFileResult.Success -> result.calName
             }
             val fileName = "$name.ics"
 

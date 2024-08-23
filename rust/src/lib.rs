@@ -81,16 +81,25 @@ fn initialize_dirs(external_dir_fd: i32, app_dir: &Path) -> Result<(), String> {
 }
 
 #[jni_fn("jni.DavSyncRs")]
-pub fn merge_dirs<'local>(external_dir_uri: JObject<'local>, app_dir: JString<'local>, context: JObject<'local>) {
-    let app_dir = PathBuf::from(get_string(&env, app_dir));
-    if let Some(Err(err)) = catch_throw!(&mut env, || merge_dirs(&mut env, external_dir_uri, &app_dir, context)) {
-        env.throw(err).unwrap()
-    }
+pub fn merge_dirs<'local>(context: JObject<'local>, external_dir_uri: JObject<'local>) {
+    catch_throw!(&mut env, || {
+        let app_dir = get_app_dir(&mut env, &context);
+        let external_dir_uri = DocUri::new(&mut env, external_dir_uri).unwrap();
+        if let Err(err) = merge_dirs(&mut env, external_dir_uri, &app_dir, context) {
+            env.throw(err).unwrap()
+        }
+    });
 }
-fn merge_dirs<'local>(env: &mut JNIEnv<'local>, external_dir_uri: JObject<'local>, app_dir: &Path, context: JObject<'local>) -> Result<(), String> {
-    let external_dir = ExternalDir::new(context, external_dir_uri);
-    let entries = external_dir.entries(env);
-    println!(env, "dir entries: {entries:?}");
+fn merge_dirs<'local>(env: &mut JNIEnv<'local>, external_dir_uri: DocUri<'local>, app_dir: &Path, context: JObject<'local>) -> Result<(), String> {
+    let internal_files = app_dir.join("calendars").read_dir()
+        .map_err(|err| format!("Failed reading directory: {err}"))?;
+    let external_files = {
+        let doc_uri = external_dir_uri.join(env, "calendars");
+        ExternalDir::new(env, context, doc_uri)
+            .ok_or_else(|| format!("Couldn't open directory"))?
+    };
+    external_files.open_file(env, "1000003539.ics").unwrap();
+    
     Ok(())
 }
 

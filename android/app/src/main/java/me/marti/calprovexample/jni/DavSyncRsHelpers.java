@@ -8,6 +8,10 @@ import android.provider.DocumentsContract;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.util.Objects;
+
 /** @noinspection unused*/
 public final class DavSyncRsHelpers {
     static boolean checkUniqueName(@NonNull Context context, @NonNull String name) throws Exception {
@@ -25,7 +29,7 @@ public final class DavSyncRsHelpers {
         return DocumentsContract.buildTreeDocumentUri(docUri.getAuthority(), DocumentsContract.getTreeDocumentId(docUri));
     }
 
-    static Cursor queryChildrenOfDocument(@NonNull Context context, @NonNull Uri docUri) throws Exception {
+    static Cursor queryChildrenOfDocument(@NonNull Context context, @NonNull Uri docUri) throws NullPointerException {
         String docId = DocumentsContract.getDocumentId(docUri);
         Uri treeUri = getDocumentTreeUri(docUri);
         Cursor c = context.getContentResolver().query(
@@ -37,9 +41,34 @@ public final class DavSyncRsHelpers {
             },
             "", new String[0], ""
         );
-        if (c == null) throw new Exception("Cursor is NULL");
+        if (c == null) throw new NullPointerException("Cursor is NULL");
         c.moveToFirst();
         return c;
     }
-}
 
+    static boolean isDir(@NonNull Context context, @NonNull Uri docUri) {
+        Cursor c;
+        try {
+            c = context.getContentResolver().query(
+                docUri,
+                new String[]{DocumentsContract.Document.COLUMN_MIME_TYPE},
+                "", new String[0], ""
+            );
+        } catch (Exception e) {
+            return false;
+        }
+        if (c == null) return false;
+        c.moveToFirst();
+
+        String mime = c.getString(0);
+
+        c.close();
+
+        return Objects.equals(mime, DocumentsContract.Document.MIME_TYPE_DIR);
+    }
+
+    /** Appends the path to the end of the Uri's document path. */
+    static @NonNull Uri joinDocUri(@NonNull Uri docUri, @NonNull String path) throws UnsupportedEncodingException {
+        return Uri.parse(docUri + URLEncoder.encode("/" + path, "utf-8"));
+    }
+}

@@ -23,7 +23,7 @@ object DavSyncRs {
      * @param appDir The internal directory where all of this app's files are stored. */
     external fun initialize_dirs(externalDirFd: Int, appDir: String)
 
-    external fun merge_dirs(externalDirUri: Uri, appDir: String, context: Context)
+    external fun merge_dirs(context: Context, externalDirUri: Uri)
 
     private external fun import_file_internal(fileFd: Int, fileName: String, appDir: String): Byte
     /** Copy file's content into the internal *app's directory*.

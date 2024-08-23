@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use jni::{JNIEnv, objects::{JObject, JObjectArray, JString}};
 use jni_macros::call;
 
@@ -83,6 +85,14 @@ fn string_array<'local>(env: &mut JNIEnv<'local>, src: &[&str]) -> JObjectArray<
     array
 }
 
+/// Returns the directory owned by this app in the Android System.
+pub fn get_app_dir(env: &mut JNIEnv, context: &JObject) -> PathBuf {
+    let mut app_dir = call!(context.getFilesDir() -> java.io.File);
+    app_dir = call!(app_dir.getPath() -> java.lang.String);
+    
+    PathBuf::from(get_string(env, JString::from(app_dir)))
+}
+
 // Wrapper class for `android.database.Cursor`
 pub struct Cursor<'local>(JObject<'local>);
 impl <'local> Cursor<'local> {
@@ -116,7 +126,61 @@ impl <'local> Cursor<'local> {
     pub fn close(self, env: &mut JNIEnv) { call!((self.0).close() -> void) }
 }
 
-pub struct DocUri<'local>(pub JObject<'local>);
+/// Represents a path of a Document in Shared Storage, which is accessed through a Document Tree.
+/// 
+/// Having a valid Uri does not mean that the file exists.
+pub struct DocUri<'local>(JObject<'local>);
 impl <'local> DocUri<'local> {
+    /// Converts an Uri to a [DocUri] by checking that it has a **Document Tree** and a **Document Path**.
+    pub fn new(env: &mut JNIEnv<'local>, uri: JObject<'local>) -> Result<Self, String> {
+        use jni::objects::JListIter;
+        
+        let segments = call!(uri.getPathSegments() -> java.util.List);
+        let segments = env.get_list(&segments).unwrap();
+        let mut segments = segments.iter(env).unwrap();
+        fn next_segment(env: &mut JNIEnv, segments: &mut JListIter) -> String {
+            segments.next(env).unwrap()
+                .map(|seg| get_string(env, JString::from(seg)))
+                .expect("Unexpected end of Uri Segments")
+        }
+        
+        // The uri's path should have this format: "/tree/{document_tree}/document/{document_path}"
+        if next_segment(env, &mut segments) != "tree" {
+            return Err("DocUri must have Document Tree".to_string())
+        }
+        if let None = segments.next(env).unwrap() {
+            return Err("DocUri has Document Tree, but does not have a value for it".to_string())
+        }
+        if next_segment(env, &mut segments) != "document" {
+            return Err("DocUri must have Document Path".to_string())
+        }
+        if let None = segments.next(env).unwrap() {
+            return Err("DocUri has Document Path, but does not have a value for it".to_string())
+        }
+        
+        Ok(Self(uri))
+    }
     
+    pub fn new_unchecked(doc_uri: JObject<'local>) -> Self { Self(doc_uri) }
+    
+    pub fn join(&self, env: &mut JNIEnv<'local>, path: impl AsRef<Path>) -> Self {
+        let path = path.as_ref()
+            .to_str()
+            .expect(&format!("Path must be valid UTF-8: {}", path.as_ref().display()));
+        Self(
+            call!(static me.marti.calprovexample.jni.DavSyncRsHelpers::joinDocUri(
+                android.net.Uri(env.new_local_ref(&self.0).unwrap()),
+                java.lang.String(env.new_string(path).unwrap())
+            ) -> Option<android.net.Uri>)
+                .expect(&format!("Passed in an invalid Uri to joinDocUri: {}", {
+                    let s = JString::from(call!((self.0).toString() -> java.lang.String));
+                    get_string(env, s)
+                }))
+        )
+    }
+}
+impl <'local> Into<JObject<'local>> for DocUri<'local> {
+    fn into(self) -> JObject<'local> {
+        self.0
+    }
 }

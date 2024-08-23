@@ -1,8 +1,9 @@
 use std::{fs::File, io, mem::ManuallyDrop, ops::{Deref, DerefMut}, os::fd::FromRawFd as _, path::{Component, Path, PathBuf}};
-use either::Either;
 use jni::{objects::{JObject, JString}, JNIEnv};
 use jni_macros::call;
 use crate::{get_string, Cursor, DocUri};
+
+static DIR_MIME_TYPE: &str = "vnd.android.document/directory";
 
 // Gets the absolute path to a file of an open **file descriptor**.
 pub fn fdpath(fd: i32) -> io::Result<PathBuf> {
@@ -30,17 +31,6 @@ impl DerefMut for FileRef {
     }
 }
 
-// pub struct DocUri<'local>(JObject<'local>);
-// impl <'local> FromStr for DocUri<'local> {
-//     type Err = ;
-
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         todo!()
-//     }
-// }
-
-static DIR_MIME_TYPE: &str = "vnd.android.document/directory";
-
 /// Can't use libc to handle files stored in Shared storage, so i'm using java methods instead.
 #[derive(Debug)]
 pub struct ExternalDir<'local> {
@@ -48,9 +38,19 @@ pub struct ExternalDir<'local> {
     doc_uri: JObject<'local>,
 }
 impl <'local> ExternalDir<'local> {
-    pub fn new(context: JObject<'local>, doc_uri: JObject<'local>) -> Self {
-        // TODO: check if uri is for a directory
-        Self { context, doc_uri }
+    /// Returns [`None`] if the file in Shared Storage doesn't exist or is not a directory.
+    pub fn new(env: &mut JNIEnv<'local>, context: JObject<'local>, doc_uri: DocUri<'local>) -> Option<Self> {
+        let doc_uri: JObject = doc_uri.into();
+        
+        // Check if doc_uri is a directory
+        if !call!(static me.marti.calprovexample.jni.DavSyncRsHelpers::isDir(
+            android.content.Context(&context),
+            android.net.Uri(&doc_uri)
+        ) -> bool) {
+            return None
+        }
+        
+        Some(Self { context, doc_uri })
     }
     
     fn file_exists(&self, env: &mut JNIEnv<'local>, file_name: &str) -> bool {
@@ -98,15 +98,28 @@ impl <'local> ExternalDir<'local> {
     /// Open a file that is a descendant of this directory in the file tree.
     ///
     /// The **path** must be a relative path; an absolute path will cause an error.
-    pub fn open_file(&self, env: &mut JNIEnv, path: &Path) -> io::Result<std::fs::File> {
-        if !path.is_absolute() {
+    pub fn open_file(&self, env: &mut JNIEnv<'local>, path: impl AsRef<Path>) -> io::Result<std::fs::File> {
+        let path = path.as_ref();
+        if path.is_absolute() {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Path argument must be a relative path; provided absolute path"))
         }
-        todo!()
+        let content_resolver = call!((self.context).getContentResolver() -> android.content.ContentResolver);
+        let mut fd = call!(content_resolver.openAssetFileDescriptor(
+            android.net.Uri(DocUri::new_unchecked(env.new_local_ref(&self.doc_uri).unwrap()).join(env, path).into()),
+            java.lang.String(env.new_string("rw").unwrap()),
+        ) -> Result<Option<android.content.res.AssetFileDescriptor>, String>)
+            .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
+            .ok_or_else(|| io::Error::other("Failed to open file because ContentProvider crashed"))?;
+        fd = call!(fd.getParcelFileDescriptor() -> android.os.ParcelFileDescriptor);
+        
+        // The file descriptor is open (called "openAssetFileDescriptor") and owned (called "detachFd").
+        Ok(unsafe { std::fs::File::from_raw_fd(call!(fd.detachFd() -> int)) })
     }
 
     /// Create a **file** that is a descendant of this directory in the file tree,
     /// and also create all subsequent parent directories of the file if they don't exist.
+    /// 
+    /// Returns [io::ErrorKind::AlreadyExists] if a file with this name already exists at this path.
     ///
     /// The **path** must be a relative path; an absolute path will cause an error.
     pub fn create_file_at(&self, env: &mut JNIEnv<'local>, path: impl AsRef<Path>) -> io::Result<DocUri<'local>> {
@@ -119,35 +132,11 @@ impl <'local> ExternalDir<'local> {
             .to_str()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Path must be UTF-8"))?;
         
-        // Create descendant directories
-        // current is the current directory that is being explored in the path.
-        // the only time it is &Self is on the first, will be ExternalDir on all other iterations.
-        let mut current: Either<&Self, ExternalDir> = Either::Left(self);
-        for component in path.parent().unwrap().components() {
-            let component = match component {
-                Component::Normal(component) => component.to_str()
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Path must be UTF-8"))?,
-                _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "Path contains invalid components (e.g. \"..\"), must be a relative path"))
-            };
-            let cur = match &current {
-                Either::Left(current) => current,
-                Either::Right(current) => current
-            };
-            // Find the next descendant directory if it exists
-            current = Either::Right(match cur.entries(env).into_vec().into_iter()
-                .find(|entry| entry.file_name() == component)
-            {
-                Some(entry) => entry.into_dir(env.new_local_ref(&self.context).unwrap())
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::AlreadyExists, "One of the descendant directories in the path already exists, but it is a file"))?,
-                // Otherwise, create it
-                None => cur.create_dir(env, component)?
-            });
+        match path.parent() {
+            Some(parent_dir) => self.create_dir_at(env, parent_dir)?
+                .create_file(env, file_name),
+            None => self.create_file(env, file_name)
         }
-        // Create the file at the last dir descendant
-        match &current {
-            Either::Left(current) => current,
-            Either::Right(current) => current
-        }.create_file(env, file_name)
     }
     
     /// Create a **file** in this directory.
@@ -170,6 +159,8 @@ impl <'local> ExternalDir<'local> {
 
     /// Create a **directory** that is a descendant of this directory in the file tree,
     /// and also create all subsequent parent directories of the directory if they don't exist.
+    /// 
+    /// If the directory already exists at this path, it is opened without creating any directories.
     ///
     /// The **path** must be a relative path; an absolute path will cause an error.
     pub fn create_dir_at(&self, env: &mut JNIEnv<'local>, path: impl AsRef<Path>) -> io::Result<Self> {
@@ -178,7 +169,13 @@ impl <'local> ExternalDir<'local> {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Path argument must be a relative path; provided absolute path"))
         }
         
-        fn create_or_open_dir<'local>(env: &mut JNIEnv<'local>, dir: &ExternalDir<'local>, sub_dir: &str) -> io::Result<ExternalDir<'local>> {
+        /// Open a directory (or create it if it doesn't exists) that is a direct child of **dir**.
+        fn create_or_open_dir<'local>(env: &mut JNIEnv<'local>, dir: &ExternalDir<'local>, sub_dir: Component) -> io::Result<ExternalDir<'local>> {
+            let sub_dir = match sub_dir {
+                Component::Normal(component) => component.to_str()
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Path must be UTF-8"))?,
+                _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "Path contains invalid components (e.g. \"..\"), must be a relative path"))
+            };
             match dir.entries(env).into_vec().into_iter()
                 .find(|entry| entry.file_name() == sub_dir)
             {
@@ -190,42 +187,21 @@ impl <'local> ExternalDir<'local> {
         }
         
         let mut components = path.components();
+        let mut current = match components.next() {
+            Some(comp) => create_or_open_dir(env, self, comp)?,
+            None => return Err(io::Error::new(io::ErrorKind::InvalidInput, "Path must not be empty"))
+        };
         
-        
-        // Create descendant directories
-        // current is the current directory that is being explored in the path.
-        // the only time it is &Self is on the first, will be ExternalDir on all other iterations.
-        let mut current: Either<&Self, ExternalDir> = Either::Left(self);
         for component in components {
-            let component = match component {
-                Component::Normal(component) => component.to_str()
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Path must be UTF-8"))?,
-                _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "Path contains invalid components (e.g. \"..\"), must be a relative path"))
-            };
-            let cur = match &current {
-                Either::Left(current) => current,
-                Either::Right(current) => current
-            };
-            // Find the next descendant directory if it exists
-            current = Either::Right(match cur.entries(env).into_vec().into_iter()
-                .find(|entry| entry.file_name() == component)
-            {
-                Some(entry) => entry.into_dir(env.new_local_ref(&self.context).unwrap())
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::AlreadyExists, "One of the descendant directories in the path already exists, but it is a file"))?,
-                // Otherwise, create it
-                None => cur.create_dir(env, component)?
-            });
+            current = create_or_open_dir(env, &current, component)?
         }
         
-        // match &current {
-        //     Either::Left(current) => current,
-        //     Either::Right(current) => current
-        // }
-        todo!()
+        Ok(current)
     }
     
     /// Create a **directory** that is a child if this directory.
-    /// Does nothing if it already exists.
+    /// 
+    /// If the directory already exists, it is opened without creating any directories.
     pub fn create_dir(&self, env: &mut JNIEnv<'local>, name: &str) -> io::Result<Self> {
         // Check if file already exists
         match self.entries(env).into_vec().into_iter()
@@ -238,7 +214,7 @@ impl <'local> ExternalDir<'local> {
             },
             // FIXME: returns an URI with the wrong tree
             None => self.create_document(env, name, DIR_MIME_TYPE)
-                .map(move |doc_uri| Self { context: env.new_local_ref(&self.context).unwrap(), doc_uri: doc_uri.0 })
+                .map(move |doc_uri| Self { context: env.new_local_ref(&self.context).unwrap(), doc_uri: doc_uri.into() })
         }
     }
     
@@ -247,16 +223,17 @@ impl <'local> ExternalDir<'local> {
     /// 
     /// Check if document exists before calling this
     fn create_document(&self, env: &mut JNIEnv<'local>, file_stem: &str, mime: &str) -> io::Result<DocUri<'local>> {
-        Ok(DocUri(
-            call!(static android.provider.DocumentsContract::createDocument(
-                android.content.ContentResolver(call!((self.context).getContentResolver() -> android.content.ContentResolver)),
-                android.net.Uri(&self.doc_uri),
-                java.lang.String(JObject::from(env.new_string(mime).unwrap())),
-                java.lang.String(JObject::from(env.new_string(file_stem).unwrap()))
-            ) -> Result<Option<android.net.Uri>, String>)
-                .map_err(|msg| io::Error::new(io::ErrorKind::NotFound, msg))?
-                .ok_or_else(|| io::Error::other("Failed to create file {file_name:?}, unknown reason"))?
-        ))
+        let uri = call!(static android.provider.DocumentsContract::createDocument(
+            android.content.ContentResolver(call!((self.context).getContentResolver() -> android.content.ContentResolver)),
+            android.net.Uri(&self.doc_uri),
+            java.lang.String(JObject::from(env.new_string(mime).unwrap())),
+            java.lang.String(JObject::from(env.new_string(file_stem).unwrap()))
+        ) -> Result<Option<android.net.Uri>, String>)
+            .map_err(|msg| io::Error::new(io::ErrorKind::NotFound, msg))?
+            .ok_or_else(|| io::Error::other("Failed to create file {file_name:?}, unknown reason"))?;
+        
+        DocUri::new(env, uri)
+            .map_err(|err| io::Error::other(format!("DocumentsContract.createDocument() returned an invalid DocUri: {err}")))
     }
 }
 

@@ -300,6 +300,11 @@ fun CalendarPermissionScope.deleteCalendarByName(name: String): Boolean {
         arrayOf(name)
     ).run {
         this != 0
+    }.apply {
+        if (this)
+            Log.i("deleteCalendar", "Deleted Calendar \"$name\"")
+        else
+            Log.e("deleteCalendar", "Failed to delete Calendar \"$name\"")
     }
 }
 
