@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.channels.Channel
 import me.marti.calprovexample.R
 import me.marti.calprovexample.launch
+import java.lang.ref.WeakReference
 
 private val PERMISSIONS = arrayOf("android.permission.READ_CALENDAR", "android.permission.WRITE_CALENDAR")
 
@@ -25,6 +26,7 @@ private val PERMISSIONS = arrayOf("android.permission.READ_CALENDAR", "android.p
  * @return Whether all Permissions were **Granted**. */
 private fun checkResults(results: Map<String, Boolean>): Boolean = results.all { (_, perm) -> perm }
 
+/** The permission object that is used ot interact with the Content Provider. */
 class CalendarPermissionScope internal constructor(val context: Context)
 
 /** Base class for [CalendarPermission].
@@ -149,26 +151,10 @@ class CalendarPermission(
     activity: MainActivity,
     onPermGranted: (() -> Unit)?
 ): Permission(activity, onPermGranted) {
-    // /** System Calendar operations can block the main thread, so delegate them to another thread.
-    //  *  Use **`calendarsThread.launch`** inside a *`calendarPermission.run`* block.
-    //  *
-    //  *  Using *Worker threads* instead of `AsyncTask` and `Loader`s because I understand it better.*/
-    // private val workThread = Executors.newSingleThreadExecutor()
-    //
-    // private var currentAction: (CalendarPermissionScope.() -> Unit)? = null
-
     private val channel = Channel<Boolean>()
 
     override fun onPermRequested(results: Map<String, Boolean>) {
         this.channel.trySend(checkResults(results))
-        // if (checkResults(results))
-        //     currentAction?.let { action ->
-        //         this.workThread.launch { action(this@CalendarPermission.dsl) }
-        //     } ?: run {
-        //         throw Exception("CalendarPermission.currentAction was not set before requesting permission")
-        //     }
-        // else
-        //     this.showDeniedToast()
     }
 
     /** Run the **action** by launching it in a *worker thread*,
@@ -249,10 +235,28 @@ class CalendarPermission(
         }
     }
 
-    // private fun requestPermissions() {
-    //     Log.i("CalendarPermission", "Requesting Calendar permissions...")
-    //     this.requestLauncher.launch(PERMISSIONS)
-    // }
+    /** Requests the permission and waits for it to be granted.
+     * @return **`NULL`** if the permission was denied. */
+    @Suppress("RedundantVisibilityModifier", "unused") // Used by Rust
+    public suspend fun waitForPermission(): CalendarPermissionScope? {
+        // Should use rationale dialog?
+        return if (this.requestPermissionsAsync()) {
+            this.dsl
+        } else {
+            null
+        }
+    }
+
+    /** Gives access to the currently granted [permission][CalendarPermissionScope] (if any).
+     * @return **`NULL`** if the app doesn't have the permission. */
+    @Suppress("RedundantVisibilityModifier", "unused") // Used by Rust
+    public fun usePermission(): CalendarPermissionScope? {
+        return if (this.hasPermission())
+            this.dsl
+        else
+            null
+    }
+
     /** Returns whether the permissions have been granted and it is safe to proceed. */
     private suspend fun requestPermissionsAsync(): Boolean {
         Log.i("CalendarPermission", "Requesting Calendar permissions (async)...")

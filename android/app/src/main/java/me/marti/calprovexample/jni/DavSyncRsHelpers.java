@@ -46,7 +46,7 @@ public final class DavSyncRsHelpers {
         return c;
     }
 
-    static boolean isDir(@NonNull Context context, @NonNull Uri docUri) {
+    static boolean isDir(@NonNull Context context, @NonNull Uri docUri) throws NullPointerException {
         Cursor c;
         try {
             c = context.getContentResolver().query(
@@ -57,7 +57,7 @@ public final class DavSyncRsHelpers {
         } catch (Exception e) {
             return false;
         }
-        if (c == null) return false;
+        if (c == null) throw new NullPointerException("Cursor is NULL");
         c.moveToFirst();
 
         String mime = c.getString(0);

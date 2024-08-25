@@ -1,5 +1,4 @@
-use std::path::{Path, PathBuf};
-
+use std::{io, path::{Path, PathBuf}};
 use jni::{JNIEnv, objects::{JObject, JObjectArray, JString}};
 use jni_macros::call;
 
@@ -161,8 +160,62 @@ impl <'local> DocUri<'local> {
         Ok(Self(uri))
     }
     
-    pub fn new_unchecked(doc_uri: JObject<'local>) -> Self { Self(doc_uri) }
+    pub(super) fn new_unchecked(doc_uri: JObject<'local>) -> Self { Self(doc_uri) }
     
+    /// Attempts to open a file for *reading or writing* from the Document Uri.
+    pub fn open_file(&self, env: &mut JNIEnv<'local>, context: &JObject) -> io::Result<std::fs::File> {
+        use std::os::fd::FromRawFd as _;
+        
+        let content_resolver = call!(context.getContentResolver() -> android.content.ContentResolver);
+        let mut fd = call!(content_resolver.openAssetFileDescriptor(
+            android.net.Uri(&self.0),
+            java.lang.String(env.new_string("rw").unwrap()),
+        ) -> Result<Option<android.content.res.AssetFileDescriptor>, String>)
+            .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
+            .ok_or_else(|| io::Error::other("Failed to open file because ContentProvider crashed"))?;
+        fd = call!(fd.getParcelFileDescriptor() -> android.os.ParcelFileDescriptor);
+        
+        // The file descriptor is open (called "openAssetFileDescriptor") and owned (called "detachFd").
+        Ok(unsafe { std::fs::File::from_raw_fd(call!(fd.detachFd() -> int)) })
+    }
+    
+    /// Get the name of the file or directory for this Uri.
+    /// Similar to [Path::file_name()].
+    pub fn file_name(&self, env: &mut JNIEnv) -> String {
+        let last_segment = JString::from(call!((self.0).getLastPathSegment() -> Option<java.lang.String>).unwrap());
+        let doc_path = get_string(env, last_segment);
+        Self::doc_path_file_name(&doc_path).to_string()
+    }
+    /// Get the [name](Self::file_name()) (*without extension*) of the file or directory for this Uri.
+    /// Similar to [Path::file_stem()].
+    pub fn file_stem(&self, env: &mut JNIEnv) -> String {
+        let file_name = self.file_name(env);
+        Self::doc_path_file_stem(&file_name).to_string()
+    }
+    
+    /// Get the file name out of the {doc_path} part of an Document Uri
+    pub(super) fn doc_path_file_name(doc_path: &str) -> &str {
+        // Split the path at the last component (hence reverse split)
+        doc_path.rsplit_once('/')
+            // Strip the "primary:" part of the doc id if it's only one component
+            .or_else(|| doc_path.split_once(':'))
+            .map(|split| split.1)
+            // Would be weird if the doc id didn't have that "primary:" part, but should still be good
+            .unwrap_or(doc_path)
+    }
+    /// Get the file name (*without extension*) out of the {doc_path} part of an Document Uri
+    pub(super) fn doc_path_file_stem(file_name: &str) -> &str {
+        // Ignore the starting '.'
+        file_name.strip_prefix('.')
+            .unwrap_or(file_name)
+            // Return the part BEFORE the last '.'
+            .rsplit_once('.')
+            .map(|(stem, _)| stem)
+            // Return entire file name if there are no '.'
+            .unwrap_or(file_name)
+    }
+    
+    /// Appends **path** to the end of the Document Path.
     pub fn join(&self, env: &mut JNIEnv<'local>, path: impl AsRef<Path>) -> Self {
         let path = path.as_ref()
             .to_str()
@@ -179,8 +232,13 @@ impl <'local> DocUri<'local> {
         )
     }
 }
-impl <'local> Into<JObject<'local>> for DocUri<'local> {
-    fn into(self) -> JObject<'local> {
-        self.0
+impl <'local> AsRef<JObject<'local>> for DocUri<'local> {
+    fn as_ref(&self) -> &JObject<'local> {
+        &self.0
     }
 }
+// impl <'local> Into<JObject<'local>> for DocUri<'local> {
+//     fn into(self) -> JObject<'local> {
+//         self.0
+//     }
+// }

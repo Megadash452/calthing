@@ -10,6 +10,7 @@ import me.marti.calprovexample.calendar.DisplayCalendarProjection
 import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.calendar.getCursor
 import me.marti.calprovexample.fileNameWithoutExtension
+import me.marti.calprovexample.ui.MainActivity
 import kotlin.jvm.Throws
 
 /** Rust functions that can be called from Java.
@@ -19,11 +20,10 @@ object DavSyncRs {
     init { System.loadLibrary("davsync") }
 
     /** Initialize the **internal** and **external** directories by creating all necessary sub-directories (e.g. calendars and contacts directories).
-     * @param externalDirFd The *file descriptor* for the directory in shared storage the user picked to sync files.
-     * @param appDir The internal directory where all of this app's files are stored. */
-    external fun initialize_dirs(externalDirFd: Int, appDir: String)
+     * @param externalDirUri The *Uri* for the directory in shared storage the user picked to sync files.  */
+    external fun initialize_dirs(context: Context, externalDirUri: Uri)
 
-    external fun merge_dirs(context: Context, externalDirUri: Uri)
+    external suspend fun merge_dirs(activity: MainActivity, externalDirUri: Uri)
 
     private external fun import_file_internal(fileFd: Int, fileName: String, appDir: String): Byte
     /** Copy file's content into the internal *app's directory*.

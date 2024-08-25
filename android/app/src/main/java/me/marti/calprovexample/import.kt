@@ -129,40 +129,6 @@ fun MainActivity.createFiles(fileName: String, color: Color, id: Long? = null) {
     }
 }
 
-fun MainActivity.mergeDirs(syncDir: Uri) {
-    val internalFiles = Path("${this.filesDir.path}/calendars/").listFiles()!!
-    val externalFiles = DocumentFile.fromTreeUri(this.baseContext, syncDir)!!.findFile("calendars")!!.listFiles()
-    // Find the files that are in one directory but not in the other, and copy them to the other.
-    val copyToInternal = externalFiles.filter { file -> !internalFiles.map { it.name }.contains(file.name!!) }
-    val copyToExternal = internalFiles.filter { file -> !externalFiles.map { it.name!! }.contains(file.name) }
-    val filesToMerge = internalFiles.map { it.name }.filter { file -> externalFiles.map { it.name!! }.contains(file) }
-    // Copy the files
-    for (file in copyToInternal) {
-        this.openFd(file.uri)?.use { fileFd ->
-            try { DavSyncRs.importFileInternal(fileFd.fd, file.name!!, this.filesDir.path) }
-            catch (e: Exception) {
-                Log.e("mergeDirs", "Error copying external file to internal dir: $e")
-            }
-        }
-    }
-    for (file in copyToExternal)
-        this.copyToExternalFile(file.name, syncDir)
-    // Check if common files are different, and ask user whether to accept incoming or keep internal
-    for (fileName in filesToMerge) {
-        val internalFile = Path("${this.filesDir.path}/calendars/$fileName").bufferedReader().use { it.readText() }
-        val externalFile = this.contentResolver.openInputStream(syncDir.join("calendars/$fileName"))!!.use { it -> it.bufferedReader().use { it.readText() } }
-        if (internalFile != externalFile)
-            TODO("Show dialog asking user whether to keep current or accept incoming (launch in other thread)")
-    }
-    // Add calendars from external directory to Content Provider
-    // Calendars in internal dir are should already be in the Content Provider, so no need to do this for copyToExternal too.
-    if (this.calendarPermission.hasPermission())
-        this.calendarPermission.launchOrFail {
-            for (file in copyToInternal)
-                writeFileDataToCalendar(fileNameWithoutExtension(file.name!!), this@mergeDirs.filesDir)
-            this@mergeDirs.userCalendars.value?.syncWithProvider()
-        }
-}
 
 fun writeColorToCalendarFile(name: String, color: Color) {
     // TODO()

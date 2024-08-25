@@ -237,7 +237,7 @@ fun CalendarPermissionScope.newCalendar(name: String, color: Color): InternalUse
 }
 
 /** Will create calendar in Content Provider if it doesn't yet exist */
-fun CalendarPermissionScope.writeFileDataToCalendar(name: String, filesDir: Path) {
+fun CalendarPermissionScope.writeFileDataToCalendar(name: String) {
     try {
         this.newCalendar(name, Color(DEFAULT_CALENDAR_COLOR)) // TODO: use color from file
     } catch (e: ElementExistsException) {

@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                 ?: return@launchOrFail
             val calendars = this.internalUserCalendars()!!.map { it.name }
             for (file in internalFiles.filter { !calendars.contains(it.name) })
-                this.writeFileDataToCalendar(fileNameWithoutExtension(file.name), this@MainActivity.filesDir)
+                this.writeFileDataToCalendar(fileNameWithoutExtension(file.name))
             // Init list if it's not already
             println("sync list with content provider")
             userCalendars.value?.syncWithProvider() ?: run {
@@ -135,17 +135,10 @@ class MainActivity : ComponentActivity() {
             // Convert Tree URI to an URI that can be used by the DocumentsProvider
             val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
 
-            this.openFd(docUri)?.use { file ->
-                // Create calendar and contacts dirs in internal and external directories.
-                DavSyncRs.initialize_dirs(file.fd, this.filesDir.path)
-            } ?: run {
-                dirSelectChannel.trySend(false)
-                return@launch
-            }
-
+            // Create calendar and contacts dirs in internal and external directories.
+            DavSyncRs.initialize_dirs(this.baseContext, docUri)
             // Copy files from internal to external, and vice versa, resolving conflicts with user
-            DavSyncRs.merge_dirs(this.baseContext, docUri)
-            // this.mergeDirs(uri)
+            DavSyncRs.merge_dirs(this, docUri)
 
             this.syncDir.value = docUri
             dirSelectChannel.trySend(true)
@@ -375,6 +368,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    fun getUserCalendars(): MutableCalendarsList? {
+        return this.userCalendars.value
+    }
+
     private fun selectSyncDir() {
         // The ACTION_OPEN_DOCUMENT_TREE Intent can optionally take an URI where the file picker will open to.
         this.dirSelectIntent.launch(null)
@@ -554,7 +551,7 @@ class MutableCalendarsList(
                     this@MutableCalendarsList.list.add(newCal)
                 } ?: throw Exception("Error creating new calendar")
                 // Fill data in Content Provider
-                this.writeFileDataToCalendar(name, activity.filesDir)
+                this.writeFileDataToCalendar(name)
             }
         }
     }
@@ -631,7 +628,7 @@ class MutableCalendarsList(
             activity.calendarPermission.runOrFail {
                 // Color doesn't matter, as it will be assigned in writeFileDataToCalendar
                 this.newCalendar(name, Color(0)) ?: throw Exception("Error creating Calendar from File")
-                this.writeFileDataToCalendar(name, activity.filesDir)
+                this.writeFileDataToCalendar(name)
                 // Add Calendar to the list
                 this@MutableCalendarsList.list.add(this.getData(name)
                     ?: throw Exception("Error getting data of newly added Calendar")
@@ -721,7 +718,7 @@ class MutableCalendarsList(
                 this@MutableCalendarsList.list.add(newCal)
             } ?: throw Exception("Error creating new calendar")
             // ,and parse the file's content
-            this.writeFileDataToCalendar(name, activity.filesDir)
+            this.writeFileDataToCalendar(name)
         }
     }
 

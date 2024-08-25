@@ -32,21 +32,18 @@ impl DerefMut for FileRef {
 }
 
 /// Can't use libc to handle files stored in Shared storage, so i'm using java methods instead.
-#[derive(Debug)]
 pub struct ExternalDir<'local> {
     context: JObject<'local>,
-    doc_uri: JObject<'local>,
+    doc_uri: DocUri<'local>,
 }
 impl <'local> ExternalDir<'local> {
     /// Returns [`None`] if the file in Shared Storage doesn't exist or is not a directory.
     pub fn new(env: &mut JNIEnv<'local>, context: JObject<'local>, doc_uri: DocUri<'local>) -> Option<Self> {
-        let doc_uri: JObject = doc_uri.into();
-        
         // Check if doc_uri is a directory
         if !call!(static me.marti.calprovexample.jni.DavSyncRsHelpers::isDir(
             android.content.Context(&context),
-            android.net.Uri(&doc_uri)
-        ) -> bool) {
+            android.net.Uri(doc_uri.as_ref())
+        ) -> Result<bool, String>).ok()? {
             return None
         }
         
@@ -62,16 +59,16 @@ impl <'local> ExternalDir<'local> {
     pub fn entries(&self, env: &mut JNIEnv<'local>) -> Box<[ExternalDirEntry<'local>]> {
         // // Get the treeUri so that entries can also have the tree id in their URI
         let tree_uri = call!(static me.marti.calprovexample.jni.DavSyncRsHelpers::getDocumentTreeUri(
-            android.net.Uri(&self.doc_uri)
+            android.net.Uri(self.doc_uri.as_ref())
         ) -> android.net.Uri);
         // Call the query helper function to list all entries of the directory
         let cursor = Cursor::new(
             call!(static me.marti.calprovexample.jni.DavSyncRsHelpers::queryChildrenOfDocument(
                 android.content.Context(&self.context),
-                android.net.Uri(&self.doc_uri)
+                android.net.Uri(self.doc_uri.as_ref())
             ) -> Result<android.database.Cursor, String>)
             .inspect_err(|e | {
-                let doc_uri_str = JString::from(call!((self.doc_uri).toString() -> java.lang.String));
+                let doc_uri_str = JString::from(call!((self.doc_uri.as_ref()).toString() -> java.lang.String));
                 let doc_uri_str = get_string(env, doc_uri_str);
                 panic!("Failed to query entries of {doc_uri_str:?}:\n{e}")
             }).unwrap()
@@ -88,7 +85,12 @@ impl <'local> ExternalDir<'local> {
             let mime_type = cursor.get_string(env, 1);
             let flags = cursor.get_int(env, 2);
 
-            entries.push(ExternalDirEntry { doc_uri, doc_id: get_string(env, doc_id), mime_type: get_string(env, mime_type), flags });
+            entries.push(ExternalDirEntry {
+                doc_uri: DocUri::new_unchecked(doc_uri),
+                doc_id: get_string(env, doc_id),
+                mime_type: get_string(env, mime_type),
+                flags
+            });
         }
         cursor.close(env);
 
@@ -103,17 +105,8 @@ impl <'local> ExternalDir<'local> {
         if path.is_absolute() {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Path argument must be a relative path; provided absolute path"))
         }
-        let content_resolver = call!((self.context).getContentResolver() -> android.content.ContentResolver);
-        let mut fd = call!(content_resolver.openAssetFileDescriptor(
-            android.net.Uri(DocUri::new_unchecked(env.new_local_ref(&self.doc_uri).unwrap()).join(env, path).into()),
-            java.lang.String(env.new_string("rw").unwrap()),
-        ) -> Result<Option<android.content.res.AssetFileDescriptor>, String>)
-            .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
-            .ok_or_else(|| io::Error::other("Failed to open file because ContentProvider crashed"))?;
-        fd = call!(fd.getParcelFileDescriptor() -> android.os.ParcelFileDescriptor);
         
-        // The file descriptor is open (called "openAssetFileDescriptor") and owned (called "detachFd").
-        Ok(unsafe { std::fs::File::from_raw_fd(call!(fd.detachFd() -> int)) })
+        self.doc_uri.join(env, path).open_file(env, &self.context)
     }
 
     /// Create a **file** that is a descendant of this directory in the file tree,
@@ -225,7 +218,7 @@ impl <'local> ExternalDir<'local> {
     fn create_document(&self, env: &mut JNIEnv<'local>, file_stem: &str, mime: &str) -> io::Result<DocUri<'local>> {
         let uri = call!(static android.provider.DocumentsContract::createDocument(
             android.content.ContentResolver(call!((self.context).getContentResolver() -> android.content.ContentResolver)),
-            android.net.Uri(&self.doc_uri),
+            android.net.Uri(self.doc_uri.as_ref()),
             java.lang.String(JObject::from(env.new_string(mime).unwrap())),
             java.lang.String(JObject::from(env.new_string(file_stem).unwrap()))
         ) -> Result<Option<android.net.Uri>, String>)
@@ -238,7 +231,7 @@ impl <'local> ExternalDir<'local> {
 }
 
 pub struct ExternalDirEntry<'local> {
-    doc_uri: JObject<'local>,
+    doc_uri: DocUri<'local>,
     doc_id: String,
     mime_type: String,
     flags: i32
@@ -255,16 +248,19 @@ impl <'local> ExternalDirEntry<'local> {
             None
         }
     }
-    /// Get the name of the file or directory of this entry.
-    pub fn file_name(&self) -> &str {
-        // Split the path at the last component (hence reverse split)
-        self.doc_id.rsplit_once('/')
-            // Strip the "primary:" part of the doc id if it's only one component
-            .or_else(|| self.doc_id.split_once(':'))
-            .map(|split| split.1)
-            // Would be weird if the doc id didn't have that "primary:" part, but should still be good
-            .unwrap_or(self.doc_id.as_str())
+    
+    /// See [DocUri::open_file()].
+    pub fn open_file(&self, env: &mut JNIEnv<'local>, context: &JObject) -> io::Result<std::fs::File> {
+        self.doc_uri.open_file(env, context)
     }
+    
+    /// Get the name of the file or directory of this entry.
+    pub fn file_name(&self) -> &str { DocUri::doc_path_file_name(&self.doc_id) }
+    /// Get the name (*without extension*) of the file or directory of this entry.
+    pub fn file_stem(&self) -> &str { DocUri::doc_path_file_stem(self.file_name()) }
+    
+    /// Get the *path-like* object for this entry.
+    pub fn uri(&self) -> &DocUri { &self.doc_uri }
 }
 impl <'local> std::fmt::Debug for ExternalDirEntry<'local> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
