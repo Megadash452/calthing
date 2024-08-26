@@ -5,11 +5,6 @@ use crate::{get_string, Cursor, DocUri};
 
 static DIR_MIME_TYPE: &str = "vnd.android.document/directory";
 
-// Gets the absolute path to a file of an open **file descriptor**.
-pub fn fdpath(fd: i32) -> io::Result<PathBuf> {
-    std::fs::read_link(format!("/proc/self/fd/{fd}"))
-}
-
 /// A file that is *not owned* by this object, meaning the file descriptor is *not consumed*.
 ///
 /// Use this intead of [File] when getting a `ParcelFileDescriptor` from opening a file in Java.

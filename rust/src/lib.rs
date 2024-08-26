@@ -10,12 +10,10 @@ use fs::*;
 
 use std::{fs::File, io::ErrorKind, path::{Path, PathBuf}, ptr::NonNull};
 use jni::{objects::{JObject, JString}, sys::{_jobject, jobject}, JNIEnv};
-use throw::catch_throw;
 use jni_macros::{call, jni_fn, package};
 
 package!("me.marti.calprovexample");
 
-const NULL: jobject = std::ptr::null_mut();
 /// These are the names of the directories where synced data will be stored
 const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
 
@@ -25,12 +23,10 @@ const SUFFIX_DIR: &str = "calendars";
 
 #[jni_fn("jni.DavSyncRs")]
 pub fn initialize_dirs<'local>(context: JObject<'local>, external_dir_uri: JObject<'local>) {
-    catch_throw!(&mut env, || {
-        let app_dir = get_app_dir(&mut env, &context);
-        let external_dir_uri = DocUri::new(&mut env, external_dir_uri).unwrap();
-        initialize_dirs(&mut env, external_dir_uri, &app_dir, context)
-            .inspect_err(|err| panic!("{err}"))
-    });
+    let app_dir = get_app_dir(env, &context);
+    let external_dir_uri = DocUri::new(env, external_dir_uri).unwrap();
+    initialize_dirs(env, external_dir_uri, &app_dir, context)
+        .inspect_err(|err| panic!("{err}")).unwrap()
 }
 /// Initialize the **internal** and **external** directories by creating all necessary sub-directories (e.g. calendars and contacts directories).
 ///
@@ -67,14 +63,11 @@ fn initialize_dirs<'local>(env: &mut JNIEnv<'local>, external_dir_uri: DocUri<'l
 
 #[jni_fn("jni.DavSyncRs")]
 pub fn merge_dirs<'local>(activity: JObject<'local>, external_dir_uri: JObject<'local>) {
-    catch_throw!(&mut env, || {
-        let context = call!(activity.getBaseContext() -> android.content.Context);
-        let app_dir = get_app_dir(&mut env, &context);
-        let external_dir_uri = DocUri::new(&mut env, external_dir_uri).unwrap();
-        if let Err(err) = merge_dirs(&mut env, external_dir_uri, &app_dir, activity, context) {
-            env.throw(err).unwrap()
-        }
-    });
+    let context = call!(activity.getBaseContext() -> android.content.Context);
+    let app_dir = get_app_dir(env, &context);
+    let external_dir_uri = DocUri::new(env, external_dir_uri).unwrap();
+    merge_dirs(env, external_dir_uri, &app_dir, activity, context)
+        .inspect_err(|err| panic!("{err}")).unwrap()
 }
 fn merge_dirs<'local>(env: &mut JNIEnv<'local>, external_dir_uri: DocUri<'local>, app_dir: &Path, activity: JObject<'local>, context: JObject<'local>) -> Result<(), String> {
     let internal_dir = app_dir.join("calendars");
@@ -192,23 +185,16 @@ pub enum ImportResult {
 // Getting s a file descriptor seems to be the only way to open a file not owned by the app, even with permission.
 #[jni_fn("jni.DavSyncRs")]
 pub fn import_file_internal<'local>(file_fd: i32, file_name: JString, app_dir: JString) -> ImportResult {
-    let file_name = get_string(&env, file_name);
+    let file_name = get_string(env, file_name);
     // The App's internal directory where the process has permissions to read/write files.
     let app_dir = PathBuf::from(get_string(&env, app_dir));
-
-    if let Some(r) = catch_throw(&mut env, || import_file_internal(file_fd, &file_name, &app_dir)) {
-        match r {
-            Ok(v) => if v {
-                ImportResult::Success
-            } else {
-                ImportResult::FileExists
-            },
-            Err(error) => {
-                env.throw(error).unwrap();
-                ImportResult::Error
-            }
-        }
-    } else { ImportResult::Error }
+    if import_file_internal(file_fd, &file_name, &app_dir)
+        .inspect_err(|err| panic!("{err}")).unwrap()
+    {
+        ImportResult::Success
+    } else {
+        ImportResult::FileExists
+    }
 }
 /// Copy an *`.ics`* file's content into the internal *app's directory*.
 ///
@@ -251,23 +237,15 @@ fn import_file_internal(file_fd: i32, file_name: &str, app_dir: &Path) -> Result
 
 #[jni_fn("jni.DavSyncRs")]
 pub fn import_file_external<'local>(external_file_fd: i32, file_name: JString, app_dir: JString) {
-    let (file_name,  app_dir) = match catch_throw!(&mut env, || (
-        get_string(&env, file_name),
-        PathBuf::from(get_string(&env, app_dir))
-    )) {
-        Some(v) => v,
-        None => return
-    };
-
-    if let Some(Err(error)) = catch_throw(&mut env, || import_file_external(external_file_fd, &file_name, &app_dir)) {
+    let file_name = get_string(&env, file_name);
+    let app_dir = PathBuf::from(get_string(&env, app_dir));
+    if let Err(err) = import_file_external(external_file_fd, &file_name, &app_dir) {
         // Failed to complete import because couldn't copy to external file.
         // Delete the imported file in the internal directory.
-        catch_throw!(&mut env, || {
-            if let Err(error2) = std::fs::remove_file(app_dir.join(SUFFIX_DIR).join(file_name)) {
-                env.throw(format!("Couldnt delete internal imported file: {error2}")).unwrap();
-            };
-            env.throw(error).unwrap();
-        });
+        if let Err(err) = std::fs::remove_file(app_dir.join(SUFFIX_DIR).join(file_name)) {
+            panic!("Failed to delete internal imported file: {err}");
+        };
+        panic!("Failed to write to external file; deleted internal file.\nError: {err}");
     }
 }
 /// Write the contents of the file already imported in the *internal directory* to the new file created in *sync directory* (external).
@@ -287,18 +265,11 @@ fn import_file_external(external_file_fd: i32, file_name: &str, app_dir: &Path) 
 
 #[jni_fn("jni.DavSyncRs")]
 pub fn new_calendar_from_file<'local>(context: JObject, name: JString, app_dir: JString) -> jobject {
-    match catch_throw!(&mut env, || {
-        let name = get_string(&env, name);
-        let app_dir = PathBuf::from(get_string(&env, app_dir));
-        new_calendar_from_file(name, app_dir, &mut env, context)
-    }) {
-        Some(Ok(obj)) => obj.as_ptr(),
-        Some(Err(err)) => {
-            env.throw(err).unwrap();
-            NULL
-        },
-        None => 0 as jobject
-    }
+    let name = get_string(env, name);
+    let app_dir = PathBuf::from(get_string(env, app_dir));
+    new_calendar_from_file(name, app_dir, env, context)
+        .inspect_err(|err| panic!("{err}")).unwrap()
+        .as_ptr()
 }
 fn new_calendar_from_file(name: String, app_dir: PathBuf, env: &mut JNIEnv, context: JObject) -> Result<NonNull<_jobject>, String> {
     // Check that a calendar with this name doesn't already exist
