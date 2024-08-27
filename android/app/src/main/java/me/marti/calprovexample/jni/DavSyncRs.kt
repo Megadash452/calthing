@@ -9,6 +9,7 @@ import me.marti.calprovexample.ElementExistsException
 import me.marti.calprovexample.calendar.DisplayCalendarProjection
 import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.calendar.getCursor
+import me.marti.calprovexample.fileName
 import me.marti.calprovexample.fileNameWithoutExtension
 import me.marti.calprovexample.ui.MainActivity
 import kotlin.jvm.Throws
@@ -25,23 +26,21 @@ object DavSyncRs {
 
     external suspend fun merge_dirs(activity: MainActivity, externalDirUri: Uri)
 
-    private external fun import_file_internal(fileFd: Int, fileName: String, appDir: String): Byte
+    private external suspend fun import_file_internal(context: Context, fileUri: Uri): Byte
     /** Copy file's content into the internal *app's directory*.
      *
      * After a *successful* call to this function,
      * the caller should create a file in the external directory and call [`import_file_external()`].
      *
      * ### Parameters
-     * @param fileFd The *unowned* file descriptor of the file to be imported, and **file_name** is its name (including extension).
-     * @param appDir The internal directory where all of this app's files are stored.
-     *   Pass in the base directory regardless of whether the file should go in *calendars* or *contacts*.
+     * @param fileUri is the *Document Uri* of the file to be imported.
      *
-     * @return Returns `false` if the file couldn't be imported because a file with that name already exists in the local directory. */
-    fun importFileInternal(fileFd: Int, fileName: String, appDir: String): ImportFileResult {
+     * @return Returns [ImportFileResult.FileExists] if the file couldn't be imported because a file with that name already exists in the local directory. */
+    suspend fun importFileInternal(context: Context, fileUri: Uri): ImportFileResult {
+        val fileName = fileUri.fileName()!!
         val calName = fileNameWithoutExtension(fileName)
-
         when (try {
-            import_file_internal(fileFd, fileName, appDir).toInt()
+            import_file_internal(context, fileUri).toInt()
         } catch (e: Exception) {
             Log.e("importFileInternal", "Error importing file. Thrown exception:\n$e")
             return ImportFileResult.Error
@@ -58,24 +57,15 @@ object DavSyncRs {
         }
     }
 
-    private external fun import_file_external(externalFileFd: Int, fileName: String, appDir: String)
-    /** Write the contents of the file already imported in the *internal directory* to the new file created in *sync directory* (external). */
-    fun importFileExternal(externalFileFd: Int, fileName: String, appDir: String): Boolean {
-        return try {
-            import_file_external(externalFileFd, fileName, appDir)
-            true
-        } catch (e: Exception) {
-            Log.e(null, "Error importing file to external storage. Thrown exception:\n$e")
-            false
-        }
-    }
+    /** Copy a file named **file_name** from the *internal directory* to the **external directory** in Shared Storage. */
+    external fun import_file_external(context: Context, fileName: String, externalDirUri: Uri)
 
     /** Create a new Calendar entry in the Content Provider by reading the contents of a calendar file.
-     * This function will find the file in the provided [app directory][appDir].
+     * This function will find the file in the [internal directory][Context.getFilesDir].
      *
      * @throws ElementExistsException if a calendar with that **name** already exists. */
     @Throws(ElementExistsException::class)
-    external fun new_calendar_from_file(context: Context, name: String, appDir: String): InternalUserCalendar
+    external fun new_calendar_from_file(context: Context, name: String): InternalUserCalendar
 }
 
 @Suppress("unused")

@@ -1,4 +1,4 @@
-use std::{io, path::{Path, PathBuf}};
+use std::{fmt::Display, io, path::{Path, PathBuf}};
 use jni::{JNIEnv, objects::{JObject, JObjectArray, JString}};
 use jni_macros::call;
 
@@ -84,7 +84,7 @@ fn string_array<'local>(env: &mut JNIEnv<'local>, src: &[&str]) -> JObjectArray<
     array
 }
 
-/// Returns the directory owned by this app in the Android System.
+/// Returns the directory owned by this App (where it's files are stored) in the Android System.
 pub fn get_app_dir(env: &mut JNIEnv, context: &JObject) -> PathBuf {
     let mut app_dir = call!(context.getFilesDir() -> java.io.File);
     app_dir = call!(app_dir.getPath() -> java.lang.String);
@@ -125,13 +125,15 @@ impl <'local> Cursor<'local> {
     pub fn close(self, env: &mut JNIEnv) { call!((self.0).close() -> void) }
 }
 
-/// Represents a path of a Document in Shared Storage, which is accessed through a Document Tree.
+/// Represents a path of a Document in Shared Storage, which could be accessed through a *Document Tree*.
+/// 
+/// This is analogous to [`Path`] in a normal system.
 /// 
 /// Having a valid Uri does not mean that the file exists.
 pub struct DocUri<'local>(JObject<'local>);
 impl <'local> DocUri<'local> {
-    /// Converts an Uri to a [DocUri] by checking that it has a **Document Tree** and a **Document Path**.
-    pub fn new(env: &mut JNIEnv<'local>, uri: JObject<'local>) -> Result<Self, String> {
+    /// Get a [DocUri] from an Uri that has access to a **Document Tree** and a **Document Path** for identifying a document within that tree.
+    pub fn from_tree_uri(env: &mut JNIEnv<'local>, uri: JObject<'local>) -> Result<Self, String> {
         use jni::objects::JListIter;
         
         let segments = call!(uri.getPathSegments() -> java.util.List);
@@ -160,16 +162,40 @@ impl <'local> DocUri<'local> {
         Ok(Self(uri))
     }
     
+    /// Get a [DocUri] from an Uri that only has a **Document Path**.
+    pub fn from_doc_uri(env: &mut JNIEnv<'local>, uri: JObject<'local>) -> Result<Self, String> {
+        use jni::objects::JListIter;
+        
+        let segments = call!(uri.getPathSegments() -> java.util.List);
+        let segments = env.get_list(&segments).unwrap();
+        let mut segments = segments.iter(env).unwrap();
+        fn next_segment(env: &mut JNIEnv, segments: &mut JListIter) -> String {
+            segments.next(env).unwrap()
+                .map(|seg| get_string(env, JString::from(seg)))
+                .expect("Unexpected end of Uri Segments")
+        }
+        
+        // The uri's path should have this format: "/document/{document_path}"
+        if next_segment(env, &mut segments) != "document" {
+            return Err("DocUri must have Document Path".to_string())
+        }
+        if let None = segments.next(env).unwrap() {
+            return Err("DocUri has Document Path, but does not have a value for it".to_string())
+        }
+        
+        Ok(Self(uri))
+    }
+    
     pub(super) fn new_unchecked(doc_uri: JObject<'local>) -> Self { Self(doc_uri) }
     
-    /// Attempts to open a file for *reading or writing* from the Document Uri.
-    pub fn open_file(&self, env: &mut JNIEnv<'local>, context: &JObject) -> io::Result<std::fs::File> {
+    /// Attempts to open a file in Shared Storage identified by the [`DocUri`] with the given mode (**options**).
+    pub fn open_file(&self, env: &mut JNIEnv<'local>, context: &JObject, options: OpenOptions) -> io::Result<std::fs::File> {
         use std::os::fd::FromRawFd as _;
         
         let content_resolver = call!(context.getContentResolver() -> android.content.ContentResolver);
         let mut fd = call!(content_resolver.openAssetFileDescriptor(
             android.net.Uri(&self.0),
-            java.lang.String(env.new_string("rw").unwrap()),
+            java.lang.String(env.new_string(options.to_string()).unwrap()),
         ) -> Result<Option<android.content.res.AssetFileDescriptor>, String>)
             .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
             .ok_or_else(|| io::Error::other("Failed to open file because ContentProvider crashed"))?;
@@ -237,8 +263,47 @@ impl <'local> AsRef<JObject<'local>> for DocUri<'local> {
         &self.0
     }
 }
-// impl <'local> Into<JObject<'local>> for DocUri<'local> {
-//     fn into(self) -> JObject<'local> {
-//         self.0
-//     }
-// }
+
+/// Options for opening files according to [ParceFileDescriptor::parseMode](https://developer.android.com/reference/android/os/ParcelFileDescriptor#parseMode(java.lang.String)).
+pub enum OpenOptions {
+    ReadOnly,
+    WriteOnly {
+        extra: Option<ExtraMode>,
+    },
+    ReadWrite {
+        // Seems that can't have "rwa"
+        truncate: bool
+    }
+}
+impl OpenOptions {
+    /// Shortcut to get [`Self::WriteOnly`] without extra options.
+    pub fn write() -> Self {
+        Self::WriteOnly { extra: None }
+    }
+    /// Shortcut to get [`Self::ReadWrite`] without extra options.
+    pub fn read_write() -> Self {
+        Self::ReadWrite { truncate: false }
+    }
+}
+impl Default for OpenOptions {
+    /// Default mode is [`Self::ReadOnly`].
+    fn default() -> Self {
+        Self::ReadOnly
+    }
+}
+impl Display for OpenOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Self::ReadOnly => "r",
+            Self::WriteOnly { extra: None } => "w",
+            Self::WriteOnly { extra: Some(ExtraMode::Truncate) } => "wt",
+            Self::WriteOnly { extra: Some(ExtraMode::Append) } => "wa",
+            Self::ReadWrite { truncate: true } => "rwt",
+            Self::ReadWrite { truncate: false } => "rw"
+        })
+    }
+}
+
+pub enum ExtraMode {
+    Truncate, Append
+}

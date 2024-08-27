@@ -24,7 +24,7 @@ const SUFFIX_DIR: &str = "calendars";
 #[jni_fn("jni.DavSyncRs")]
 pub fn initialize_dirs<'local>(context: JObject<'local>, external_dir_uri: JObject<'local>) {
     let app_dir = get_app_dir(env, &context);
-    let external_dir_uri = DocUri::new(env, external_dir_uri).unwrap();
+    let external_dir_uri = DocUri::from_tree_uri(env, external_dir_uri).unwrap();
     initialize_dirs(env, external_dir_uri, &app_dir, context)
         .inspect_err(|err| panic!("{err}")).unwrap()
 }
@@ -65,7 +65,7 @@ fn initialize_dirs<'local>(env: &mut JNIEnv<'local>, external_dir_uri: DocUri<'l
 pub fn merge_dirs<'local>(activity: JObject<'local>, external_dir_uri: JObject<'local>) {
     let context = call!(activity.getBaseContext() -> android.content.Context);
     let app_dir = get_app_dir(env, &context);
-    let external_dir_uri = DocUri::new(env, external_dir_uri).unwrap();
+    let external_dir_uri = DocUri::from_tree_uri(env, external_dir_uri).unwrap();
     merge_dirs(env, external_dir_uri, &app_dir, activity, context)
         .inspect_err(|err| panic!("{err}")).unwrap()
 }
@@ -107,7 +107,7 @@ fn merge_dirs<'local>(env: &mut JNIEnv<'local>, external_dir_uri: DocUri<'local>
     
     // Copy external files to internal directory
     for entry in copy_to_internal.clone() {
-        let mut external_file = entry.open_file(env, &context)
+        let mut external_file = entry.open_file(env, &context, OpenOptions::ReadOnly)
             .map_err(|err| format!("Failed to open file in external directory: {err}"))?;
         
         // Open the file to copy to in the internal directory
@@ -133,7 +133,7 @@ fn merge_dirs<'local>(env: &mut JNIEnv<'local>, external_dir_uri: DocUri<'local>
         
         // Open the file to copy to in the external directory
         let mut external_file = match external_dir.create_file(env, entry.file_name().to_str().expect("File name must be UTF-8")) {
-            Ok(file) => file.open_file(env, &context)
+            Ok(file) => file.open_file(env, &context, OpenOptions::write())
                 .map_err(|err| format!("Failed to open newly created file in external directory: {err}"))?,
             Err(error) =>
                 return if error.kind() == ErrorKind::AlreadyExists {
@@ -182,13 +182,20 @@ fn merge_dirs<'local>(env: &mut JNIEnv<'local>, external_dir_uri: DocUri<'local>
 pub enum ImportResult {
     Error, Success, FileExists
 }
-// Getting s a file descriptor seems to be the only way to open a file not owned by the app, even with permission.
+/// Copy an *`.ics`* file's content into the internal *app's directory*.
+///
+/// A *successful* call to this function should be subsequently followed by a call to [`import_file_external()`]
+///
+/// ### Parameters
+/// **file_uri** is the *Document Uri* of the file to be imported.
+/// **context**: `android.content.Context`.
+///
+/// ### Return
+/// Returns [`ImportResult::FileExists`] if the file couln't be imported because a file with that name already exists in the internal directory.
 #[jni_fn("jni.DavSyncRs")]
-pub fn import_file_internal<'local>(file_fd: i32, file_name: JString, app_dir: JString) -> ImportResult {
-    let file_name = get_string(env, file_name);
-    // The App's internal directory where the process has permissions to read/write files.
-    let app_dir = PathBuf::from(get_string(&env, app_dir));
-    if import_file_internal(file_fd, &file_name, &app_dir)
+pub fn import_file_internal<'local>(context: JObject<'local>, file_uri: JObject<'local>) -> ImportResult {
+    let file_uri = DocUri::from_doc_uri(env, file_uri).unwrap();
+    if import_file_internal(env, file_uri, context)
         .inspect_err(|err| panic!("{err}")).unwrap()
     {
         ImportResult::Success
@@ -196,29 +203,19 @@ pub fn import_file_internal<'local>(file_fd: i32, file_name: JString, app_dir: J
         ImportResult::FileExists
     }
 }
-/// Copy an *`.ics`* file's content into the internal *app's directory*.
-///
-/// A *successful* (`Ok(true)`) call to this function should be subsequently followed by a call to [`import_file_external()`]
-///
-/// ### Parameters
-/// **file_fd** is the *unowned* file descriptor of the file to be imported, and **file_name** is its name (including extension).
-/// For **app_dir** and **sync_dir**, pass in the base directory regardless of whether it should go to *calendars* or *contacts*.
-/// This function will append the correct path to those directories.
-///
-/// ### Return
-/// Returns `false` if the file couln't be imported because a file with that name already exists in the local directory.
-fn import_file_internal(file_fd: i32, file_name: &str, app_dir: &Path) -> Result<bool, String> {
-    let internal_dir = app_dir.join(SUFFIX_DIR);
+fn import_file_internal<'local>(env: &mut JNIEnv<'local>, file_uri: DocUri<'local>, context: JObject<'local>) -> Result<bool, String> {
+    let internal_dir = get_app_dir(env, &context).join(SUFFIX_DIR);
 
     // Ensure the destination directories are created (internal)
     std::fs::create_dir_all(&internal_dir)
         .map_err(|error| format!("Error creating directories leading up to {internal_dir:?}: {error}"))?;
 
     // The file that the user picked ot import
-    let mut file = FileRef::new(file_fd);
+    let mut file = file_uri.open_file(env, &context, OpenOptions::ReadOnly)
+        .map_err(|err| format!("Failed to open file to import: {err}"))?;
 
     // Open the file to copy to in the internal directory
-    let mut internal_file = match File::create_new(internal_dir.join(file_name)) {
+    let mut internal_file = match File::create_new(internal_dir.join(file_uri.file_name(env))) {
         Ok(file) => file,
         Err(error) =>
             return if error.kind() == ErrorKind::AlreadyExists {
@@ -229,19 +226,21 @@ fn import_file_internal(file_fd: i32, file_name: &str, app_dir: &Path) -> Result
     };
 
     // Copy file's contents to the destination
-    std::io::copy(&mut *file, &mut internal_file)
+    std::io::copy(&mut file, &mut internal_file)
         .map_err(|error| format!("Error copying to file in App dir: {error}"))?;
 
     Ok(true)
 }
 
+/// Copy a file named **file_name** from the *internal directory* to the **external directory** in Shared Storage.
 #[jni_fn("jni.DavSyncRs")]
-pub fn import_file_external<'local>(external_file_fd: i32, file_name: JString, app_dir: JString) {
-    let file_name = get_string(&env, file_name);
-    let app_dir = PathBuf::from(get_string(&env, app_dir));
-    if let Err(err) = import_file_external(external_file_fd, &file_name, &app_dir) {
+pub fn import_file_external<'local>(context: JObject<'local>, file_name: JString<'local>, external_dir_uri: JObject<'local>) {
+    let external_dir_uri = DocUri::from_tree_uri(env, external_dir_uri).unwrap();
+    let file_name = get_string(env, file_name);
+    if let Err(err) = import_file_external(env, &file_name, external_dir_uri, &context) {
         // Failed to complete import because couldn't copy to external file.
         // Delete the imported file in the internal directory.
+        let app_dir = get_app_dir(env, &context);
         if let Err(err) = std::fs::remove_file(app_dir.join(SUFFIX_DIR).join(file_name)) {
             panic!("Failed to delete internal imported file: {err}");
         };
@@ -249,29 +248,33 @@ pub fn import_file_external<'local>(external_file_fd: i32, file_name: JString, a
     }
 }
 /// Write the contents of the file already imported in the *internal directory* to the new file created in *sync directory* (external).
-fn import_file_external(external_file_fd: i32, file_name: &str, app_dir: &Path) -> Result<(), String> {
+fn import_file_external<'local>(env: &mut JNIEnv<'local>, file_name: &str, external_dir_uri: DocUri<'local>, context: &JObject<'local>) -> Result<(), String> {
     // Open the file to copy FROM in the internal directory
-    let mut internal_file = std::fs::File::open(app_dir.join(SUFFIX_DIR).join(file_name))
-        .map_err(|error| format!("Error opening file in internal dir: {error}"))?;
+    let mut internal_file = std::fs::File::open(get_app_dir(env, context).join(SUFFIX_DIR).join(file_name))
+        .map_err(|err| format!("Error opening file in internal dir: {err}"))?;
     // Open the file to copy TO in the sync directory (external)
-    let mut external_file = FileRef::new(external_file_fd);
+    let mut external_file = ExternalDir::new(env, env.new_local_ref(context).unwrap(), external_dir_uri)
+        .ok_or_else(|| "external_dir_uri does not point to a directory")?
+        .create_file_at(env, PathBuf::from(SUFFIX_DIR).join(file_name))
+        .map_err(|err| format!("Error creating external file: {err}"))?
+        .open_file(env, context, OpenOptions::write())
+        .map_err(|err| format!("Error opening newly created external file: {err}"))?;
 
     // Copy file's contents to the destination
-    std::io::copy(&mut internal_file, &mut *external_file)
-        .map_err(|error| format!("Error copying to file in App dir: {error}"))?;
+    std::io::copy(&mut internal_file, &mut external_file)
+        .map_err(|err| format!("Error copying to file in App dir: {err}"))?;
 
     Ok(())
 }
 
 #[jni_fn("jni.DavSyncRs")]
-pub fn new_calendar_from_file<'local>(context: JObject, name: JString, app_dir: JString) -> jobject {
+pub fn new_calendar_from_file<'local>(context: JObject, name: JString) -> jobject {
     let name = get_string(env, name);
-    let app_dir = PathBuf::from(get_string(env, app_dir));
-    new_calendar_from_file(name, app_dir, env, context)
+    new_calendar_from_file(env, name, context)
         .inspect_err(|err| panic!("{err}")).unwrap()
         .as_ptr()
 }
-fn new_calendar_from_file(name: String, app_dir: PathBuf, env: &mut JNIEnv, context: JObject) -> Result<NonNull<_jobject>, String> {
+fn new_calendar_from_file(env: &mut JNIEnv, name: String, context: JObject) -> Result<NonNull<_jobject>, String> {
     // Check that a calendar with this name doesn't already exist
     let exists = call!(static me.marti.calprovexample.jni.DavSyncRsHelpers::checkUniqueName(
         android.content.Context(context),

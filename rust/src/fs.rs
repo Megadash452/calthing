@@ -1,7 +1,7 @@
 use std::{fs::File, io, mem::ManuallyDrop, ops::{Deref, DerefMut}, os::fd::FromRawFd as _, path::{Component, Path, PathBuf}};
 use jni::{objects::{JObject, JString}, JNIEnv};
 use jni_macros::call;
-use crate::{get_string, Cursor, DocUri};
+use crate::{get_string, utils::{Cursor, DocUri, OpenOptions}};
 
 static DIR_MIME_TYPE: &str = "vnd.android.document/directory";
 
@@ -93,15 +93,16 @@ impl <'local> ExternalDir<'local> {
     }
 
     /// Open a file that is a descendant of this directory in the file tree.
+    /// See [DocUri::open_file()].
     ///
     /// The **path** must be a relative path; an absolute path will cause an error.
-    pub fn open_file(&self, env: &mut JNIEnv<'local>, path: impl AsRef<Path>) -> io::Result<std::fs::File> {
+    pub fn open_file(&self, env: &mut JNIEnv<'local>, path: impl AsRef<Path>, options: OpenOptions) -> io::Result<std::fs::File> {
         let path = path.as_ref();
         if path.is_absolute() {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Path argument must be a relative path; provided absolute path"))
         }
         
-        self.doc_uri.join(env, path).open_file(env, &self.context)
+        self.doc_uri.join(env, path).open_file(env, &self.context, options)
     }
 
     /// Create a **file** that is a descendant of this directory in the file tree,
@@ -220,7 +221,7 @@ impl <'local> ExternalDir<'local> {
             .map_err(|msg| io::Error::new(io::ErrorKind::NotFound, msg))?
             .ok_or_else(|| io::Error::other("Failed to create file {file_name:?}, unknown reason"))?;
         
-        DocUri::new(env, uri)
+        DocUri::from_tree_uri(env, uri)
             .map_err(|err| io::Error::other(format!("DocumentsContract.createDocument() returned an invalid DocUri: {err}")))
     }
 }
@@ -245,8 +246,8 @@ impl <'local> ExternalDirEntry<'local> {
     }
     
     /// See [DocUri::open_file()].
-    pub fn open_file(&self, env: &mut JNIEnv<'local>, context: &JObject) -> io::Result<std::fs::File> {
-        self.doc_uri.open_file(env, context)
+    pub fn open_file(&self, env: &mut JNIEnv<'local>, context: &JObject, options: OpenOptions) -> io::Result<std::fs::File> {
+        self.doc_uri.open_file(env, context, options)
     }
     
     /// Get the name of the file or directory of this entry.

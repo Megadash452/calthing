@@ -60,25 +60,34 @@ import me.marti.calprovexample.calendar.getData
 import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
 import me.marti.calprovexample.calendar.writeFileDataToCalendar
-import me.marti.calprovexample.copyToExternalFile
 import me.marti.calprovexample.createFiles
 import me.marti.calprovexample.deleteFiles
 import me.marti.calprovexample.externalFile
-import me.marti.calprovexample.fileName
 import me.marti.calprovexample.fileNameWithoutExtension
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.internalFile
 import me.marti.calprovexample.launch
-import me.marti.calprovexample.openFd
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.writeCalendarDataToFile
 import me.marti.calprovexample.writeColorToCalendarFile
 import java.io.IOException
+import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 import java.io.File as Path
 
 const val DEFAULT_CALENDAR_COLOR = 0x68acef
 const val CALENDAR_DOCUMENT_MIME_TYPE = "text/calendar"
+
+internal val calendarWorkThread = Executors.newSingleThreadExecutor()
+
+private lateinit var weakActivity: WeakReference<MainActivity>
+fun showToast(text: String) {
+    weakActivity.get()?.let { activity ->
+        activity.runOnUiThread {
+            Toast.makeText(activity.baseContext, text, Toast.LENGTH_SHORT).show()
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
     private val onCalendarPermGranted: () -> Unit = {
@@ -101,7 +110,6 @@ class MainActivity : ComponentActivity() {
     val calendarPermission = CalendarPermission(this, this.onCalendarPermGranted)
     private val snackBarState = SnackbarHostState()
     private lateinit var snackBarAsyncScope: CoroutineScope
-    internal val calendarWorkThread = Executors.newSingleThreadExecutor()
 
     // -- Hoisted States for compose
     /** The path/URI where the synced .ics files are stored in shared storage.
@@ -123,7 +131,7 @@ class MainActivity : ComponentActivity() {
     private val dirSelectChannel = Channel<Boolean>()
     /** Register for the intent that lets the user pick a directory where Syncthing (or some other service) will store the .ics files. */
     private val dirSelectIntent = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
-        this.calendarWorkThread.launch("Syncing directories") {
+        calendarWorkThread.launch("Syncing directories") {
             if (treeUri == null) {
                 println("OpenDir: User cancelled the file picker.")
                 dirSelectChannel.trySend(false)
@@ -154,7 +162,7 @@ class MainActivity : ComponentActivity() {
             return@registerForActivityResult
         }
 
-        this.calendarWorkThread.launch("Importing files") {
+        calendarWorkThread.launch("Importing files") {
             for (uri in uris)
                 this.userCalendars.value?.addFile(uri)
         }
@@ -165,6 +173,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(navigationBarStyle = SystemBarStyle.light(0, 0))
         super.onCreate(savedInstanceState)
         Log.d(null, "Initializing Main Activity")
+        weakActivity = WeakReference(this)
 
         val fragmentCals = BooleanUserPreference(PreferenceKey.FRAGMENT_CALS)
 
@@ -283,7 +292,9 @@ class MainActivity : ComponentActivity() {
     /** Defines the actions of the [ExpandableFab] */
     private fun calendarFabActions(asyncScope: CoroutineScope) = NonEmptyList(
         ExpandableFab.Action(Icons.Default.Create, "New blank calendar") {
-            this@MainActivity.calendarPermission.launch {
+            calendarWorkThread.launch {
+                calendarPermission.waitForPermission() ?: return@launch
+                DavSyncRs.new_calendar_from_file(this.baseContext, "hi")
                 AsyncDialog.showDialog { close ->
                     NewCalendarAction(
                         close = close,
@@ -295,12 +306,12 @@ class MainActivity : ComponentActivity() {
             }
         },
         ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar") {
-            this.calendarWorkThread.launch {
+            calendarWorkThread.launch {
                 // Get the Calendars in the device the user can copy
                 val calendars = this@MainActivity.calendarPermission.run("Searching for calendars") {
                     this.externalUserCalendars()
                 } ?: run {
-                    this@MainActivity.showToast("Error getting calendars")
+                    showToast("Error getting calendars")
                     Log.e("CopyCalendar", "Could not get external calendars, either because of error or permissions denied")
                     return@launch
                 }
@@ -324,14 +335,14 @@ class MainActivity : ComponentActivity() {
                 if (syncDir.value == null) {
                     // Tell the user they will select syncDir
                     if (!AsyncDialog.show("Select sync directory")) {
-                        this@MainActivity.showToast("Import canceled")
+                        showToast("Import canceled")
                         return@launch
                     }
                     dirSelectChannel.tryReceive() // clear channel
                     this@MainActivity.selectSyncDir()
                     if (!dirSelectChannel.receive()) {
                         // Cancel the import if the user canceled selecting the directory
-                        this@MainActivity.showToast("Import canceled")
+                        showToast("Import canceled")
                         return@launch
                     }
                     // Tell the user they will select the file to import
@@ -342,10 +353,6 @@ class MainActivity : ComponentActivity() {
             }
         },
     )
-
-    fun showToast(text: String) = this.runOnUiThread {
-        Toast.makeText(this.baseContext, text, Toast.LENGTH_SHORT).show()
-    }
 
     /** Shows a snack-bar with a **message** and an "Undo" button.
      * Automatically dismisses other snack-bars with the same message.
@@ -368,6 +375,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** only used by Rust */
     fun getUserCalendars(): MutableCalendarsList? {
         return this.userCalendars.value
     }
@@ -410,7 +418,7 @@ class MutableCalendarsList(
      * This should be called either to *initialize* the list or
      * *update* the list after files have been modified.
      *
-     * Use ONLY if calling from a [worker thread][MainActivity.calendarWorkThread] */
+     * Use ONLY if calling from a [worker thread][calendarWorkThread] */
     internal suspend fun syncWithProvider() {
         activity.calendarPermission.runOrFail {
             this.internalUserCalendars()?.also { cals ->
@@ -494,7 +502,7 @@ class MutableCalendarsList(
         val new = CalendarEditor(old)
         editor(new)
 
-        activity.calendarWorkThread.launch {
+        calendarWorkThread.launch {
             // Rename files
             if (old.name != new.name) {
                 // Check if name is unique
@@ -534,7 +542,7 @@ class MutableCalendarsList(
     }
 
     override fun add(element: CalendarEditor) {
-        activity.calendarWorkThread.launch {
+        calendarWorkThread.launch {
             val name = element.name
             val fileName = "$name.ics"
 
@@ -560,23 +568,20 @@ class MutableCalendarsList(
      * @throws Exception if the Calendar could not be added because of some internal error.
      * (e.g. creating files, content provider, etc.) */
     internal fun addFile(fileUri: Uri) {
-        activity.calendarWorkThread.launch {
+        calendarWorkThread.launch {
             val syncDir = activity.syncDir.value ?: run {
                 Log.w("createFiles", "syncDir is NULL; Can't add external file; Will add it later")
                 return@launch
             }
-            val openFdError = "Error opening file picked by user. See log."
             val importErrorToast = "Error importing file"
 
             // Import to internal file first
-            val result: ImportFileResult = activity.openFd(fileUri)?.use { file ->
-                DavSyncRs.importFileInternal(file.fd, fileUri.fileName()!!, activity.filesDir.path)
-            } ?: throw Exception(openFdError)
+            val result = DavSyncRs.importFileInternal(activity.baseContext, fileUri)
 
             val name = when (result) {
                 is ImportFileResult.Success -> result.calName
                 is ImportFileResult.Error -> {
-                    activity.showToast(importErrorToast)
+                    showToast(importErrorToast)
                     return@launch
                 }
                 is ImportFileResult.FileExists -> {
@@ -601,20 +606,18 @@ class MutableCalendarsList(
                     }
 
                     // Retry import under new conditions
-                    activity.openFd(fileUri)?.use { file ->
-                        when (DavSyncRs.importFileInternal(file.fd, "$finalName.ics", activity.filesDir.path)) {
-                            is ImportFileResult.Error -> {
-                                activity.showToast(importErrorToast)
-                                return@launch
-                            }
-                            is ImportFileResult.FileExists -> {
-                                Log.e("finishImport (Rename)", "Tried to import file under different name, but still another file exists.")
-                                activity.showToast(importErrorToast)
-                                return@launch
-                            }
-                            is ImportFileResult.Success -> {}
+                    when (DavSyncRs.importFileInternal(activity.baseContext, fileUri)) {
+                        is ImportFileResult.Error -> {
+                            showToast(importErrorToast)
+                            return@launch
                         }
-                    } ?: throw Exception(openFdError)
+                        is ImportFileResult.FileExists -> {
+                            Log.e("finishImport (Rename)", "Tried to import file under different name, but still another file exists.")
+                            showToast(importErrorToast)
+                            return@launch
+                        }
+                        is ImportFileResult.Success -> {}
+                    }
 
                     finalName
                 }
@@ -623,7 +626,7 @@ class MutableCalendarsList(
 
             // TODO: check if file is in syncDir. if it's not, create external file, otherwise don't
             // Create external file
-            activity.copyToExternalFile(fileName, syncDir)
+            DavSyncRs.import_file_external(activity.baseContext, fileName, syncDir)
             // Create entry in Content Provider
             activity.calendarPermission.runOrFail {
                 // Color doesn't matter, as it will be assigned in writeFileDataToCalendar
@@ -705,7 +708,7 @@ class MutableCalendarsList(
         // Copy file to internal dir
         deleted.copyTo(targetFile)
         // Copy file to external dir
-        activity.copyToExternalFile(fileName, activity.syncDir.value ?: run {
+        DavSyncRs.import_file_external(activity.baseContext, fileName, activity.syncDir.value ?: run {
             Log.w("MutableCalendarList.restore", "syncDir is NULL; can't create external file")
             return
         })
@@ -737,12 +740,12 @@ class MutableCalendarsList(
     override fun containsAll(elements: Collection<InternalUserCalendar>): Boolean  = this.list.containsAll(elements)
 
     override fun clear() {
-        activity.calendarWorkThread.launch { this.list.forEach { cal ->  this.removeBlocking(cal.name) } }
+        calendarWorkThread.launch { this.list.forEach { cal ->  this.removeBlocking(cal.name) } }
     }
     override fun remove(key: String): InternalUserCalendar? {
         if (!this.containsKey(key))
             return null
-        activity.calendarWorkThread.launch { this.removeBlocking(key) }
+        calendarWorkThread.launch { this.removeBlocking(key) }
         this.calDeletedSnackbar(key)
         return this[key]
     }

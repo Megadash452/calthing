@@ -2,12 +2,12 @@ package me.marti.calprovexample
 
 import android.content.Context
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.net.toUri
 import kotlinx.coroutines.runBlocking
 import me.marti.calprovexample.ui.MainActivity
 import me.marti.calprovexample.ui.SuspendDialog
+import me.marti.calprovexample.ui.showToast
 import java.net.URLEncoder
 import java.util.concurrent.ExecutorService
 import androidx.compose.ui.graphics.Color as ComposeColor
@@ -53,6 +53,7 @@ class ElementExistsException(propertyValue: String): Exception() {
 
     /** @param propertyName An optional name for the property (e.g. `"name"`).
      * @see ElementExistsException */
+    @Suppress("unused")
     constructor(propertyName: String, propertyValue: String): this(propertyValue) {
         this.propertyName = propertyName
     }
@@ -134,11 +135,20 @@ fun Color(color: androidx.compose.ui.graphics.Color): Color {
 }
 
 /** Calls [execute()][ExecutorService.execute], running [command] in a *coroutine context*.
- * Can *optionally* show a [Dialog][SuspendDialog] with a **message** while [command] runs. */
+ * Can *optionally* show a [Dialog][SuspendDialog] with a **message** while [command] runs.
+ *
+ * Will catch any **exceptions** that occur so that the main (UI) thread isn't terminated. */
 fun ExecutorService.launch(msg: String? = null, command: suspend () -> Unit) {
     this.execute { runBlocking {
         msg?.let { SuspendDialog.show(it) }
-        command()
+        try {
+            command()
+        } catch (e: Exception) {
+            Log.e("WorkerThread", e.stackTraceToString())
+            msg?.let {
+                showToast("Error while running \"$msg\"")
+            } ?: showToast("Error occurred")
+        }
         msg?.let { SuspendDialog.close() }
     } }
 }
@@ -189,21 +199,6 @@ fun Uri.join(path: String): Uri {
     // Prevent adding a second slash to the join point of the paths
     val slash = if (this.lastPathSegment!!.last() == '/') "" else "/"
     return "${this}${URLEncoder.encode("$slash$path", "utf-8")}".toUri()
-}
-
-/** Get a file descriptor for a file from the ContentProvider */
-fun MainActivity.openFd(uri: Uri, perm: String = "r"): ParcelFileDescriptor? {
-    return try {
-        this.contentResolver.openFileDescriptor(uri, perm) ?: run {
-            Log.e("openFd", "Can't open file descriptor because the Content Provider is unavailable.")
-            this.showToast("Try again in a few seconds")
-            null
-        }
-    } catch (e: Exception) {
-        Log.e("openFd", "Error opening file descriptor for \"$uri\": $e")
-        this.showToast("Error opening \"${uri.lastPathSegment}\"")
-        null
-    }
 }
 
 /** Construct the path for a file that is in the internal app directory.

@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.channels.Channel
 import me.marti.calprovexample.R
 import me.marti.calprovexample.launch
-import java.lang.ref.WeakReference
 
 private val PERMISSIONS = arrayOf("android.permission.READ_CALENDAR", "android.permission.WRITE_CALENDAR")
 
@@ -76,7 +75,7 @@ class CalendarPermissionScope internal constructor(val context: Context)
  * ```
  * @param onPermGranted A function that always runs when the user Allows the permissions, regardless of the action being run.
  * @see CalendarPermission */
-abstract class Permission(protected val activity: MainActivity, private val onPermGranted: (() -> Unit)?) {
+abstract class Permission(private val activity: MainActivity, private val onPermGranted: (() -> Unit)?) {
     /** Use [MainActivity.registerForActivityResult] with [ActivityResultContracts.RequestMultiplePermissions]. */
     internal val requestLauncher: ActivityResultLauncher<Array<String>> = this.activity.registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -85,6 +84,7 @@ abstract class Permission(protected val activity: MainActivity, private val onPe
             this.onPermGranted?.invoke()
         this.onPermRequested(results)
     }
+    /** Must be wrapped in [lazy] so that [baseContext][MainActivity.getBaseContext] isn't accessed on construction. */
     internal val dsl by lazy { CalendarPermissionScope(this.activity.baseContext) }
 
     /** The function that will be called when [requestLauncher] is launched.
@@ -94,7 +94,7 @@ abstract class Permission(protected val activity: MainActivity, private val onPe
     /** Check if the app has the runtime permission to *read/write* device calendar. */
     fun hasPermission(): Boolean {
         return PERMISSIONS.all { perm ->
-            this.activity.checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED
+            this.activity.baseContext.checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED
         }
     }
     protected fun shouldShowDialog(): Boolean {
@@ -102,7 +102,7 @@ abstract class Permission(protected val activity: MainActivity, private val onPe
             this.activity.shouldShowRequestPermissionRationale(perm)
         }
     }
-    protected fun showDeniedToast() = this.activity.showToast(activity.baseContext.getString(R.string.cal_perm_denied))
+    protected fun showDeniedToast() = showToast(activity.baseContext.getString(R.string.cal_perm_denied))
 }
 
 /** A multithreaded implementation of [Permission].
@@ -166,9 +166,9 @@ class CalendarPermission(
     fun launchOrFail(msg: String? = null, action: suspend CalendarPermissionScope.() -> Unit) {
         if (this.hasPermission()) {
             if (msg == null)
-                this.activity.calendarWorkThread.launch { action(this@CalendarPermission.dsl) }
+                calendarWorkThread.launch { action(this@CalendarPermission.dsl) }
             else
-                this.activity.calendarWorkThread.launch(msg) { action(this@CalendarPermission.dsl) }
+                calendarWorkThread.launch(msg) { action(this@CalendarPermission.dsl) }
         } else
             throw Exception("Missing permissions to run action $action.")
     }
@@ -179,7 +179,7 @@ class CalendarPermission(
      *
      * Shows a [Dialog][SuspendDialog] while **action** runs if a **message** is passed. */
     fun launch(msg: String? = null, action: suspend CalendarPermissionScope.() -> Unit) {
-        this.activity.calendarWorkThread.launch {
+        calendarWorkThread.launch {
             // TODO: Calling run is a workaround for now; should be independent from run
             this@CalendarPermission.run(msg, action)
         }
@@ -214,28 +214,14 @@ class CalendarPermission(
 
         return if (this.hasPermission())
             action(this.dsl)
-        else {
-            if (this.shouldShowDialog()) {
-                var response = false
-                AsyncDialog.showDialog { close ->
-                    CalendarRationaleDialog(
-                        dismiss = { close() },
-                        confirm = { response = true; close() }
-                    )
-                }
-
-                if (!response)
-                    return null
-                // Proceed to request permission when user presses Allow in the Rationale Dialog
-            }
-            if (this.requestPermissionsAsync())
-                action(this.dsl)
-            else
-                null
-        }
+        else if (this.requestPermissionsAsync())
+            action(this.dsl)
+        else
+            null
     }
 
-    /** Requests the permission and waits for it to be granted.
+    /** Requests the permission and waits for the user to press *"Allow"*.
+     * Will immediately return with the permission if it has already been granted.
      * @return **`NULL`** if the permission was denied. */
     @Suppress("RedundantVisibilityModifier", "unused") // Used by Rust
     public suspend fun waitForPermission(): CalendarPermissionScope? {
@@ -248,6 +234,7 @@ class CalendarPermission(
     }
 
     /** Gives access to the currently granted [permission][CalendarPermissionScope] (if any).
+     * Will not request the permission if it has not been granted.
      * @return **`NULL`** if the app doesn't have the permission. */
     @Suppress("RedundantVisibilityModifier", "unused") // Used by Rust
     public fun usePermission(): CalendarPermissionScope? {
@@ -259,6 +246,20 @@ class CalendarPermission(
 
     /** Returns whether the permissions have been granted and it is safe to proceed. */
     private suspend fun requestPermissionsAsync(): Boolean {
+        if (this.shouldShowDialog()) {
+            var response = false
+            AsyncDialog.showDialog { close ->
+                CalendarRationaleDialog(
+                    dismiss = { close() },
+                    confirm = { response = true; close() }
+                )
+            }
+
+            if (!response)
+                return false
+        }
+        // Proceed to request permission when user presses Allow in the Rationale Dialog
+
         Log.i("CalendarPermission", "Requesting Calendar permissions (async)...")
         this.requestLauncher.launch(PERMISSIONS)
         val result = this.channel.receive()

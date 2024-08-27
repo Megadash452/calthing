@@ -1,55 +1,11 @@
 /** Functions that import external files that the user chooses to the app's directories and Android's content providers. */
 package me.marti.calprovexample
 
-import android.net.Uri
-import android.provider.DocumentsContract
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
-import me.marti.calprovexample.calendar.writeFileDataToCalendar
-import me.marti.calprovexample.jni.DavSyncRs
 import me.marti.calprovexample.ui.CALENDAR_DOCUMENT_MIME_TYPE
 import me.marti.calprovexample.ui.MainActivity
-import java.io.File as Path
 
-
-/** Deletes the file created in the internal directory in the case that importing to external syncDir fails or user cancels. */
-internal fun MainActivity.abortImport(fileName: String) {
-    Log.d("abortImport", "Abort: Deleting internal file.")
-    try {
-        Path("${this.filesDir.path}/${destinationDir(fileName)}/$fileName").delete()
-    } catch (e: Exception) {
-        false
-    }.let {
-        if (!it) Log.e("abortImport", "Error deleting file in internal directory.")
-    }
-}
-
-/** Copy the contents of a real file in the file system to a file in shared storage (uses content provider).
- * Creates the file with the same *file name*.
- *
- *  @param fileName The name of the file (e.g. `"calendar.ics"`). The path of the file will be derived from its *file extension*.
- *  @param syncDir Directory containing external files. See [MainActivity.syncDir]. */
-fun MainActivity.copyToExternalFile(fileName: String, syncDir: Uri) {
-    // THIS IS THE ONLY WAY TO CREATE A FILE IN EXTERNAL STORAGE, EVEN IF YOU HAVE WRITE PERMISSIONS. WHY!!!!
-    // AND I CANT OPEN A FILE IN THE DIRECTORY, EVEN IF I HAVE THE FILE DESCRIPTOR
-    val externalFileUri = DocumentsContract.createDocument(this.contentResolver,
-        syncDir.join(destinationDir(fileName)),
-        CALENDAR_DOCUMENT_MIME_TYPE,
-        fileNameWithoutExtension(fileName)
-    ) ?: run {
-        abortImport(fileName)
-        return
-    }
-
-    this.openFd(externalFileUri, "w")?.use { externalFile ->
-        DavSyncRs.importFileExternal(externalFile.fd, fileName, this.filesDir.path)
-    }?.let {
-        if (it) Unit else null // Run abort code if result is false
-    } ?: run {
-        abortImport(fileName)
-        return
-    }
-}
 
 /** Delete the files from the internal directory and the external sync directory.
  * Only tries to delete if syncDir is initialized, otherwise does nothing.
