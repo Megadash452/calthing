@@ -107,6 +107,19 @@ pub fn get_app_dir(env: &mut JNIEnv, context: &JObject) -> PathBuf {
     PathBuf::from(get_string(env, JString::from(app_dir)))
 }
 
+/// Get the file name (*without extension*) out of the {doc_path} part of an Document Uri
+pub fn file_stem(file_name: &str) -> &str {
+    // Ignore the starting '.'
+    file_name
+        .strip_prefix('.')
+        .unwrap_or(file_name)
+        // Return the part BEFORE the last '.'
+        .rsplit_once('.')
+        .map(|(stem, _)| stem)
+        // Return entire file name if there are no '.'
+        .unwrap_or(file_name)
+}
+
 // Wrapper class for `android.database.Cursor`
 pub struct Cursor<'local>(JObject<'local>);
 impl<'local> Cursor<'local> {
@@ -262,7 +275,7 @@ impl<'local> DocUri<'local> {
     /// Similar to [Path::file_stem()].
     pub fn file_stem(&self, env: &mut JNIEnv) -> String {
         let file_name = self.file_name(env);
-        Self::doc_path_file_stem(&file_name).to_string()
+        file_stem(&file_name).to_string()
     }
 
     /// Get the file name out of the {doc_path} part of an Document Uri
@@ -275,18 +288,6 @@ impl<'local> DocUri<'local> {
             .map(|split| split.1)
             // Would be weird if the doc id didn't have that "primary:" part, but should still be good
             .unwrap_or(doc_path)
-    }
-    /// Get the file name (*without extension*) out of the {doc_path} part of an Document Uri
-    pub(super) fn doc_path_file_stem(file_name: &str) -> &str {
-        // Ignore the starting '.'
-        file_name
-            .strip_prefix('.')
-            .unwrap_or(file_name)
-            // Return the part BEFORE the last '.'
-            .rsplit_once('.')
-            .map(|(stem, _)| stem)
-            // Return entire file name if there are no '.'
-            .unwrap_or(file_name)
     }
 
     /// Appends **path** to the end of the Document Path.

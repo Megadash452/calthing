@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.CalendarContract
 import android.util.Log
+import me.marti.calprovexample.Color
 import me.marti.calprovexample.ElementExistsException
 import me.marti.calprovexample.calendar.DisplayCalendarProjection
 import me.marti.calprovexample.calendar.InternalUserCalendar
@@ -16,7 +17,7 @@ import kotlin.jvm.Throws
 
 /** Rust functions that can be called from Java.
  * All the extern functions declared in this class are defined in `project root/rust/src/lib.rs` */
-@Suppress("FunctionName")
+@Suppress("FunctionName", "RedundantSuspendModifier")
 object DavSyncRs {
     init { System.loadLibrary("davsync") }
 
@@ -24,9 +25,9 @@ object DavSyncRs {
      * @param externalDirUri The *Uri* for the directory in shared storage the user picked to sync files.  */
     external fun initialize_dirs(context: Context, externalDirUri: Uri)
 
-    external suspend fun merge_dirs(activity: MainActivity, externalDirUri: Uri)
+    external fun merge_dirs(activity: MainActivity, externalDirUri: Uri)
 
-    private external suspend fun import_file_internal(context: Context, fileUri: Uri): Byte
+    private external fun import_file_internal(context: Context, fileUri: Uri): Byte
     /** Copy file's content into the internal *app's directory*.
      *
      * After a *successful* call to this function,
@@ -60,12 +61,21 @@ object DavSyncRs {
     /** Copy a file named **file_name** from the *internal directory* to the **external directory** in Shared Storage. */
     external fun import_file_external(context: Context, fileName: String, externalDirUri: Uri)
 
-    /** Create a new Calendar entry in the Content Provider by reading the contents of a calendar file.
-     * This function will find the file in the [internal directory][Context.getFilesDir].
+    /** Create the files in internal and external storage for a new Calendar the user created.
      *
-     * @throws ElementExistsException if a calendar with that **name** already exists. */
-    @Throws(ElementExistsException::class)
-    external fun new_calendar_from_file(context: Context, name: String): InternalUserCalendar
+     * If [externalDirUri] is **`NULL`**, only the file in app storage will be created.
+     * @param fileName must include the extension (e.g. `"name.ics"`). */
+    external fun create_calendar_files(context: Context, fileName: String, color: Color, externalDirUri: Uri?)
+
+    // /** Create a new Calendar entry in the Content Provider by reading the contents of a calendar file.
+    //  * This function will find the file in the [internal directory][Context.getFilesDir].
+    //  *
+    //  * @throws ElementExistsException if a calendar with that **name** already exists. */
+    // @Throws(ElementExistsException::class)
+    // external fun new_calendar_from_file(context: Context, name: String): InternalUserCalendar
+
+    external fun write_calendar_data_to_file(name: String)
+    external fun write_color_to_calendar_file(name: String, color: Color)
 }
 
 @Suppress("unused")

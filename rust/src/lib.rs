@@ -1,10 +1,10 @@
 #![cfg(target_os = "android")]
-#![allow(non_snake_case)]
 
 mod calendar;
 mod fs;
 mod throw;
 mod utils;
+use calendar::write_color_to_calendar_file;
 use fs::*;
 use utils::*;
 
@@ -15,10 +15,7 @@ use jni::{
 };
 use jni_macros::{call, jni_fn, package};
 use std::{
-    fs::File,
-    io::ErrorKind,
-    path::{Path, PathBuf},
-    ptr::NonNull,
+    fs::File, io::ErrorKind, mem::transmute, path::{Path, PathBuf}, ptr::NonNull
 };
 
 package!("me.marti.calprovexample");
@@ -29,6 +26,7 @@ const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
 /// The name that is appended to the directories' path to get the destination directory. E.g.: `"<app_dir>/calendars"`.
 // TODO: will change so that it is automatically detected whether to use "calendar" or "contacts" depending on the file type.
 const SUFFIX_DIR: &str = "calendars";
+const ILLEGAL_FILE_CHARACTERS: [char; 3] = ['/', '*', ':'];
 
 #[jni_fn("jni.DavSyncRs")]
 pub fn initialize_dirs<'local>(context: JObject<'local>, external_dir_uri: JObject<'local>) {
@@ -240,10 +238,7 @@ pub enum ImportResult {
 /// ### Return
 /// Returns [`ImportResult::FileExists`] if the file couln't be imported because a file with that name already exists in the internal directory.
 #[jni_fn("jni.DavSyncRs")]
-pub fn import_file_internal<'local>(
-    context: JObject<'local>,
-    file_uri: JObject<'local>,
-) -> ImportResult {
+pub fn import_file_internal<'local>(context: JObject<'local>, file_uri: JObject<'local>) -> ImportResult {
     let file_uri = DocUri::from_doc_uri(env, file_uri).unwrap();
     if import_file_internal(env, file_uri, context).unwrap_or_else(|err| panic!("{err}")) {
         ImportResult::Success
@@ -334,22 +329,82 @@ fn import_file_external<'local>(
 }
 
 #[jni_fn("jni.DavSyncRs")]
-pub fn new_calendar_from_file<'local>(context: JObject, name: JString) -> jobject {
-    let name = get_string(env, name);
-    new_calendar_from_file(env, name, context)
-        .unwrap_or_else(|err| panic!("{err}"))
-        .as_ptr()
-}
-fn new_calendar_from_file(
-    env: &mut JNIEnv,
-    name: String,
-    context: JObject,
-) -> Result<NonNull<_jobject>, String> {
-    // Check that a calendar with this name doesn't already exist
-    let exists = call!(static me.marti.calprovexample.jni.DavSyncRsHelpers::checkUniqueName(
-        android.content.Context(context),
-        java.lang.String(env.new_string(&name).unwrap())
-    ) -> Result<bool, String>)?;
+pub fn create_calendar_files<'local>(
+    context: JObject<'local>,
+    file_name: JString<'local>,
+    color: JObject<'local>,
+    external_dir_uri: JObject<'local>,
+) {
+    let file_name = get_string(env, file_name);
+    let external_dir_uri = if external_dir_uri.is_null() {
+        None
+    } else {
+        Some(DocUri::from_tree_uri(env, external_dir_uri).unwrap())
+    };
+    let rgb_color = unsafe { (
+        transmute(
+            env.get_field(&color, "r", "B")
+                .unwrap_or_else(|err| panic!("Error getting Color.r: {err}"))
+                .b().unwrap_or_else(|err| panic!("Expected Color.r to be a byte: {err}"))
+        ),
+        transmute(
+            env.get_field(&color, "g", "B")
+                .unwrap_or_else(|err| panic!("Error getting Color.g: {err}"))
+                .b().unwrap_or_else(|err| panic!("Expected Color.g to be a byte: {err}"))
+        ),
+        transmute(
+            env.get_field(&color, "b", "B")
+                .unwrap_or_else(|err| panic!("Error getting Color.b: {err}"))
+                .b().unwrap_or_else(|err| panic!("Expected Color.b to be a byte: {err}"))
+        ),
+    ) };
+    
+    // Check for illegal characters
+    if file_name.contains(ILLEGAL_FILE_CHARACTERS) {
+        panic!("File name can't contain the following characters: {ILLEGAL_FILE_CHARACTERS:?}")
+    }
 
-    Err("TODO: return InternalUserCalendar".to_string())
+    // Create file in App's internal storage
+    File::create_new(get_app_dir(env, &context).join(SUFFIX_DIR).join(&file_name))
+        .unwrap_or_else(|err| panic!("Error creating file in internal directory: {err}"));
+    // Create file in external directory in shared storage
+    if let Some(external_dir_uri) = external_dir_uri {
+        ExternalDir::new(env, context, external_dir_uri)
+            .unwrap_or_else(|| panic!("external_dir_uri does not point to a directory"))
+            .create_file_at(env, PathBuf::from(SUFFIX_DIR).join(&file_name))
+            .unwrap_or_else(|err| panic!("Error creating external file: {err}"));
+    }
+
+    write_color_to_calendar_file(file_stem(&file_name), rgb_color);
 }
+
+#[jni_fn("jni.DavSyncRs")]
+pub fn write_calendar_data_to_file<'local>(name: JString) {
+    // TODO:
+}
+
+#[jni_fn("jni.DavSyncRs")]
+pub fn write_color_to_calendar_file<'local>(name: JString, rgb_color: JObject) {
+    // TODO:
+}
+
+// #[jni_fn("jni.DavSyncRs")]
+// pub fn new_calendar_from_file<'local>(context: JObject, name: JString) -> jobject {
+//     let name = get_string(env, name);
+//     new_calendar_from_file(env, name, context)
+//         .unwrap_or_else(|err| panic!("{err}"))
+//         .as_ptr()
+// }
+// fn new_calendar_from_file(
+//     env: &mut JNIEnv,
+//     name: String,
+//     context: JObject,
+// ) -> Result<NonNull<_jobject>, String> {
+//     // Check that a calendar with this name doesn't already exist
+//     let exists = call!(static me.marti.calprovexample.jni.DavSyncRsHelpers::checkUniqueName(
+//         android.content.Context(context),
+//         java.lang.String(env.new_string(&name).unwrap())
+//     ) -> Result<bool, String>)?;
+
+//     Err("TODO: return InternalUserCalendar".to_string())
+// }

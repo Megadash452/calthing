@@ -157,69 +157,6 @@ class CalendarPermission(
         this.channel.trySend(checkResults(results))
     }
 
-    /** Run the **action** by launching it in a *worker thread*,
-     * only if the Activity has the required permissions.
-     * Otherwise, an [Exception] will be thrown.
-     *
-     * Shows a [Dialog][SuspendDialog] while **action** runs if a **message** is passed.
-     * @see launch */
-    fun launchOrFail(msg: String? = null, action: suspend CalendarPermissionScope.() -> Unit) {
-        if (this.hasPermission()) {
-            if (msg == null)
-                calendarWorkThread.launch { action(this@CalendarPermission.dsl) }
-            else
-                calendarWorkThread.launch(msg) { action(this@CalendarPermission.dsl) }
-        } else
-            throw Exception("Missing permissions to run action $action.")
-    }
-
-    /** Run a function that requires *Calendar Permissions* by launching it in a *worker thread*.
-     *
-     * If permission has not yet been granted, it will be requested, and then the **action** will be run.
-     *
-     * Shows a [Dialog][SuspendDialog] while **action** runs if a **message** is passed. */
-    fun launch(msg: String? = null, action: suspend CalendarPermissionScope.() -> Unit) {
-        calendarWorkThread.launch {
-            // TODO: Calling run is a workaround for now; should be independent from run
-            this@CalendarPermission.run(msg, action)
-        }
-    }
-
-    /** Run the **action** only if the Activity has the required permissions.
-     * Otherwise, an [Exception] will be thrown.
-     *
-     * Otherwise, use [CalendarPermission.launchOrFail]. */
-    suspend fun <T> runOrFail(action: suspend CalendarPermissionScope.() -> T): T {
-        return if (this.hasPermission())
-            action(this.dsl)
-        else
-            throw Exception("Missing permissions to run action $action.")
-    }
-
-    /** Run a function that requires *Calendar Permissions* in a suspend context,
-     * waiting for the action to finish running and returning a value (`T`).
-     *
-     * If permission has not yet been granted, it will be requested, and then the **action** will be run.
-     *
-     * Shows a [Dialog][SuspendDialog] while **action** runs if a **message** is passed.
-     * @return **`NULL`** if permissions were denied. */
-    suspend fun <T> run(msg: String? = null, action: suspend CalendarPermissionScope.() -> T): T? {
-        @Suppress("NAME_SHADOWING")
-        val action = msg?.let { msg -> {
-            SuspendDialog.show(msg)
-            val result = action(this)
-            SuspendDialog.close()
-            result
-        }} ?: action
-
-        return if (this.hasPermission())
-            action(this.dsl)
-        else if (this.requestPermissionsAsync())
-            action(this.dsl)
-        else
-            null
-    }
-
     /** Requests the permission and waits for the user to press *"Allow"*.
      * Will immediately return with the permission if it has already been granted.
      * @return **`NULL`** if the permission was denied. */
@@ -236,8 +173,7 @@ class CalendarPermission(
     /** Gives access to the currently granted [permission][CalendarPermissionScope] (if any).
      * Will not request the permission if it has not been granted.
      * @return **`NULL`** if the app doesn't have the permission. */
-    @Suppress("RedundantVisibilityModifier", "unused") // Used by Rust
-    public fun usePermission(): CalendarPermissionScope? {
+    fun usePermission(): CalendarPermissionScope? {
         return if (this.hasPermission())
             this.dsl
         else

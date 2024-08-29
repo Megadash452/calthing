@@ -112,7 +112,7 @@ class InternalUserCalendar(
  * The resulting Calendars can then be converted to [ExternalUserCalendar].
  * For that, see [ExternalUserCalendar.importedTo].
  * @returns **NULL** on error. */
-fun CalendarPermissionScope.externalUserCalendars(): List<UserCalendarListItem>? {
+suspend fun CalendarPermissionScope.externalUserCalendars(): List<UserCalendarListItem>? {
     // Calendars created by other apps (external
     // Whether the cursor will include or exclude calendars owned by this App
     val cur = this.context.getCursor<DisplayCalendarProjection>(
@@ -138,7 +138,7 @@ fun CalendarPermissionScope.externalUserCalendars(): List<UserCalendarListItem>?
 
 /** Get a list of Calendars owned by this App that the user can sync.
  * @returns **NULL** on error. */
-fun CalendarPermissionScope.internalUserCalendars(): List<InternalUserCalendar>? {
+suspend fun CalendarPermissionScope.internalUserCalendars(): List<InternalUserCalendar>? {
     // Calendars created by this app (internal) are those with LOCAL account type and this app's account name
     val cur = this.context.getCursor<DisplayCalendarProjection>(
         CalendarContract.Calendars.CONTENT_URI,
@@ -156,7 +156,7 @@ fun CalendarPermissionScope.internalUserCalendars(): List<InternalUserCalendar>?
 }
 
 /** Get data about a Calendar owned by this app. */
-fun CalendarPermissionScope.getData(id: Long): InternalUserCalendar? {
+suspend fun CalendarPermissionScope.getData(id: Long): InternalUserCalendar? {
     return this.context.getCursor<DisplayCalendarProjection>(
         CalendarContract.Calendars.CONTENT_URI.withId(id)
     )?.use { cursor ->
@@ -164,7 +164,7 @@ fun CalendarPermissionScope.getData(id: Long): InternalUserCalendar? {
         InternalUserCalendar(cursor)
     }
 }
-fun CalendarPermissionScope.getData(name: String): InternalUserCalendar? {
+suspend fun CalendarPermissionScope.getData(name: String): InternalUserCalendar? {
     return this.context.getCursor<DisplayCalendarProjection>(
         CalendarContract.Calendars.CONTENT_URI,
         "${DisplayCalendarProjection.DISPLAY_NAME.column} = ?",
@@ -180,7 +180,8 @@ fun CalendarPermissionScope.getData(name: String): InternalUserCalendar? {
  * @return Returns the basic data about the Calendar so it can be added to the *`userCalendars`* list.
  *   **`Null`** or if adding the calendar failed.
  * @throws ElementExistsException if a calendar with this name already exists */
-fun CalendarPermissionScope.newCalendar(name: String, color: Color): InternalUserCalendar? {
+@Suppress("RedundantSuspendModifier")
+suspend fun CalendarPermissionScope.newCalendar(name: String, color: Color): InternalUserCalendar? {
     val accountName = this.context.getString(R.string.account_name)
     val uri = CalendarContract.Calendars.CONTENT_URI.asSyncAdapter(accountName)
     return this.context.contentResolver.acquireContentProviderClient(uri)?.use { client ->
@@ -237,7 +238,7 @@ fun CalendarPermissionScope.newCalendar(name: String, color: Color): InternalUse
 }
 
 /** Will create calendar in Content Provider if it doesn't yet exist */
-fun CalendarPermissionScope.writeFileDataToCalendar(name: String) {
+suspend fun CalendarPermissionScope.writeFileDataToCalendar(name: String) {
     try {
         this.newCalendar(name, Color(DEFAULT_CALENDAR_COLOR)) // TODO: use color from file
     } catch (e: ElementExistsException) {
@@ -261,7 +262,7 @@ fun CalendarPermissionScope.editCalendar(id: Long, newName: String? = null, newC
 
 /** Delete a Calendar from the System ContentProvider.
  * @return **`true`** if the Calendar was successfully deleted, **`false`** if it wasn't. */
-fun CalendarPermissionScope.deleteCalendar(id: Long): Boolean {
+suspend fun CalendarPermissionScope.deleteCalendar(id: Long): Boolean {
     // Events are automatically deleted with the calendar
     val client = this.context.getClient()
     val calName = client.getCursor<DisplayCalendarProjection>(
@@ -319,7 +320,8 @@ fun CalendarPermissionScope.deleteCalendarByName(name: String): Boolean {
  *
  *  @returns Data of the newly added Calendar if successful.
  *          **`Null`** if there was an error setting up the contentProvider cursor. */
-fun CalendarPermissionScope.copyExternalCalendar(calendar: ExternalUserCalendar): InternalUserCalendar? {
+@Suppress("RedundantSuspendModifier")
+suspend fun CalendarPermissionScope.copyExternalCalendar(calendar: ExternalUserCalendar): InternalUserCalendar? {
     val accountName = this.context.getString(R.string.account_name)
     // List of Calendars that were successfully copied (even if there were errors in copying other things, like Events).
     val client = this.context.contentResolver.acquireContentProviderClient(CalendarContract.CONTENT_URI) ?: return null
