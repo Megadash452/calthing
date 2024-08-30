@@ -4,19 +4,20 @@ mod calendar;
 mod fs;
 mod throw;
 mod utils;
-use calendar::write_color_to_calendar_file;
 use fs::*;
 use utils::*;
 
 use jni::{
     objects::{JObject, JString},
-    sys::{_jobject, jobject},
     JNIEnv,
 };
 use jni_macros::{call, jni_fn, package};
 use std::{
-    fs::File, io::ErrorKind, mem::transmute, path::{Path, PathBuf}, ptr::NonNull
+    fs::File, io::ErrorKind, path::{Path, PathBuf}
 };
+
+pub use calendar::Java_me_marti_calprovexample_jni_DavSyncRs_write_1calendar_1data_1to_1file;
+pub use calendar::Java_me_marti_calprovexample_jni_DavSyncRs_write_1color_1to_1calendar_1file;
 
 package!("me.marti.calprovexample");
 
@@ -233,14 +234,20 @@ pub enum ImportResult {
 ///
 /// ### Parameters
 /// **file_uri** is the *Document Uri* of the file to be imported.
+/// **file_name**: If not `NULL`, the file will be imported with this name.
 /// **context**: `android.content.Context`.
 ///
 /// ### Return
 /// Returns [`ImportResult::FileExists`] if the file couln't be imported because a file with that name already exists in the internal directory.
 #[jni_fn("jni.DavSyncRs")]
-pub fn import_file_internal<'local>(context: JObject<'local>, file_uri: JObject<'local>) -> ImportResult {
+pub fn import_file_internal<'local>(context: JObject<'local>, file_uri: JObject<'local>, file_name: JString<'local>) -> ImportResult {
     let file_uri = DocUri::from_doc_uri(env, file_uri).unwrap();
-    if import_file_internal(env, file_uri, context).unwrap_or_else(|err| panic!("{err}")) {
+    let file_name = if file_name.is_null() {
+        None
+    } else {
+        Some(get_string(env, file_name))
+    };
+    if import_file_internal(env, file_uri, file_name.as_ref().map(|s| s.as_str()), context).unwrap_or_else(|err| panic!("{err}")) {
         ImportResult::Success
     } else {
         ImportResult::FileExists
@@ -249,11 +256,16 @@ pub fn import_file_internal<'local>(context: JObject<'local>, file_uri: JObject<
 fn import_file_internal<'local>(
     env: &mut JNIEnv<'local>,
     file_uri: DocUri<'local>,
+    file_name: Option<&str>,
     context: JObject<'local>,
 ) -> Result<bool, String> {
     let internal_dir = get_app_dir(env, &context).join(SUFFIX_DIR);
+    let file_path = match file_name {
+        Some(file_name) => internal_dir.join(file_name),
+        None => internal_dir.join(file_uri.file_name(env))
+    };
 
-    // Ensure the destination directories are created (internal)
+    // Ensure the destination directory is created (internal)
     std::fs::create_dir_all(&internal_dir).map_err(|error| {
         format!("Error creating directories leading up to {internal_dir:?}: {error}")
     })?;
@@ -264,7 +276,7 @@ fn import_file_internal<'local>(
         .map_err(|err| format!("Failed to open file to import: {err}"))?;
 
     // Open the file to copy to in the internal directory
-    let mut internal_file = match File::create_new(internal_dir.join(file_uri.file_name(env))) {
+    let mut internal_file = match File::create_new(file_path) {
         Ok(file) => file,
         Err(error) => {
             return if error.kind() == ErrorKind::AlreadyExists {
@@ -291,15 +303,8 @@ pub fn import_file_external<'local>(
 ) {
     let external_dir_uri = DocUri::from_tree_uri(env, external_dir_uri).unwrap();
     let file_name = get_string(env, file_name);
-    if let Err(err) = import_file_external(env, &file_name, external_dir_uri, &context) {
-        // Failed to complete import because couldn't copy to external file.
-        // Delete the imported file in the internal directory.
-        let app_dir = get_app_dir(env, &context);
-        if let Err(err) = std::fs::remove_file(app_dir.join(SUFFIX_DIR).join(file_name)) {
-            panic!("Failed to delete internal imported file: {err}");
-        };
-        panic!("Failed to write to external file; deleted internal file.\nError: {err}");
-    }
+    import_file_external(env, &file_name, external_dir_uri, &context)
+        .unwrap_or_else(|err| panic!("{err}"))
 }
 /// Write the contents of the file already imported in the *internal directory* to the new file created in *sync directory* (external).
 fn import_file_external<'local>(
@@ -326,66 +331,6 @@ fn import_file_external<'local>(
         .map_err(|err| format!("Error copying to file in App dir: {err}"))?;
 
     Ok(())
-}
-
-#[jni_fn("jni.DavSyncRs")]
-pub fn create_calendar_files<'local>(
-    context: JObject<'local>,
-    file_name: JString<'local>,
-    color: JObject<'local>,
-    external_dir_uri: JObject<'local>,
-) {
-    let file_name = get_string(env, file_name);
-    let external_dir_uri = if external_dir_uri.is_null() {
-        None
-    } else {
-        Some(DocUri::from_tree_uri(env, external_dir_uri).unwrap())
-    };
-    let rgb_color = unsafe { (
-        transmute(
-            env.get_field(&color, "r", "B")
-                .unwrap_or_else(|err| panic!("Error getting Color.r: {err}"))
-                .b().unwrap_or_else(|err| panic!("Expected Color.r to be a byte: {err}"))
-        ),
-        transmute(
-            env.get_field(&color, "g", "B")
-                .unwrap_or_else(|err| panic!("Error getting Color.g: {err}"))
-                .b().unwrap_or_else(|err| panic!("Expected Color.g to be a byte: {err}"))
-        ),
-        transmute(
-            env.get_field(&color, "b", "B")
-                .unwrap_or_else(|err| panic!("Error getting Color.b: {err}"))
-                .b().unwrap_or_else(|err| panic!("Expected Color.b to be a byte: {err}"))
-        ),
-    ) };
-    
-    // Check for illegal characters
-    if file_name.contains(ILLEGAL_FILE_CHARACTERS) {
-        panic!("File name can't contain the following characters: {ILLEGAL_FILE_CHARACTERS:?}")
-    }
-
-    // Create file in App's internal storage
-    File::create_new(get_app_dir(env, &context).join(SUFFIX_DIR).join(&file_name))
-        .unwrap_or_else(|err| panic!("Error creating file in internal directory: {err}"));
-    // Create file in external directory in shared storage
-    if let Some(external_dir_uri) = external_dir_uri {
-        ExternalDir::new(env, context, external_dir_uri)
-            .unwrap_or_else(|| panic!("external_dir_uri does not point to a directory"))
-            .create_file_at(env, PathBuf::from(SUFFIX_DIR).join(&file_name))
-            .unwrap_or_else(|err| panic!("Error creating external file: {err}"));
-    }
-
-    write_color_to_calendar_file(file_stem(&file_name), rgb_color);
-}
-
-#[jni_fn("jni.DavSyncRs")]
-pub fn write_calendar_data_to_file<'local>(name: JString) {
-    // TODO:
-}
-
-#[jni_fn("jni.DavSyncRs")]
-pub fn write_color_to_calendar_file<'local>(name: JString, rgb_color: JObject) {
-    // TODO:
 }
 
 // #[jni_fn("jni.DavSyncRs")]

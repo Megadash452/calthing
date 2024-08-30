@@ -77,6 +77,11 @@ const val DEFAULT_CALENDAR_COLOR = 0x68acef
 const val CALENDAR_DOCUMENT_MIME_TYPE = "text/calendar"
 
 internal val calendarWorkThread = Executors.newSingleThreadExecutor()
+private var calendarWorkThreadId: Long? = null
+/** Tells if the caller function is running on [calendarWorkThread]. */
+internal fun isOnWorkThread(): Boolean {
+    return Thread.currentThread().id == calendarWorkThreadId!!
+}
 
 private lateinit var weakActivity: WeakReference<MainActivity>
 fun showToast(text: String) {
@@ -146,6 +151,7 @@ class MainActivity : ComponentActivity() {
             DavSyncRs.initialize_dirs(this.baseContext, docUri)
             // Copy files from internal to external, and vice versa, resolving conflicts with user
             DavSyncRs.merge_dirs(this, docUri)
+            this.userCalendars.value?.syncWithProvider()
 
             this.syncDir.value = docUri
             dirSelectChannel.trySend(true)
@@ -173,6 +179,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Log.d(null, "Initializing Main Activity")
         weakActivity = WeakReference(this)
+        calendarWorkThread.execute {
+            calendarWorkThreadId = Thread.currentThread().id
+        }
 
         val fragmentCals = BooleanUserPreference(PreferenceKey.FRAGMENT_CALS)
 
@@ -420,14 +429,14 @@ class MutableCalendarsList(
 
     /** Read the App's calendars stored by the ContentProvider.
      * This should be called either to *initialize* the list or
-     * *update* the list after files have been modified.
-     *
-     * Use ONLY if calling from a [worker thread][calendarWorkThread] */
-    internal suspend fun syncWithProvider() {
-        this.perm.internalUserCalendars()?.also { cals ->
-            this.list.clear()
-            this.list.addAll(cals)
-        } ?: Log.e("MutableCalendarsList", "Error querying Content Provider for Local Calendars")
+     * *update* the list after files have been modified. */
+    fun syncWithProvider() {
+        calendarWorkThread.launch {
+            this.perm.internalUserCalendars()?.also { cals ->
+                this.list.clear()
+                this.list.addAll(cals)
+            } ?: Log.e("MutableCalendarsList", "Error querying Content Provider for Local Calendars")
+        }
     }
 
     private fun calDeletedSnackbar(name: String) {
@@ -566,10 +575,6 @@ class MutableCalendarsList(
      * (e.g. creating files, content provider, etc.) */
     internal fun addFile(fileUri: Uri) {
         calendarWorkThread.launch {
-            val syncDir = activity.syncDir.value ?: run {
-                Log.w("createFiles", "syncDir is NULL; Can't add external file; Will add it later")
-                return@launch
-            }
             val importErrorToast = "Error importing file"
 
             // Import to internal file first
@@ -595,15 +600,12 @@ class MutableCalendarsList(
                     }
                     when (choice) {
                         /* Canceled */0 -> return@launch
-                        /* Rename */1 -> { }
-                        /* Overwrite */2 -> {
-                        this.removeBlocking(finalName)
-                        this.calDeletedSnackbar(finalName)
-                    }
+                        /* Rename */1 -> { /* The file will be imported with the new value of finalName */ }
+                        /* Overwrite */2 -> this.remove(finalName)
                     }
 
                     // Retry import under new conditions
-                    when (DavSyncRs.importFileInternal(activity.baseContext, fileUri)) {
+                    when (DavSyncRs.importFileInternal(activity.baseContext, fileUri, "$finalName.ics")) {
                         is ImportFileResult.Error -> {
                             showToast(importErrorToast)
                             return@launch
@@ -623,7 +625,9 @@ class MutableCalendarsList(
 
             // TODO: check if file is in syncDir. if it's not, create external file, otherwise don't
             // Create external file
-            DavSyncRs.import_file_external(activity.baseContext, fileName, syncDir)
+            activity.syncDir.value?.let { syncDir ->
+                DavSyncRs.import_file_external(activity.baseContext, fileName, syncDir)
+            } ?: Log.w("createFiles", "syncDir is NULL; Can't add external file; Will add it later")
             // Create entry in Content Provider
             // Color doesn't matter, as it will be assigned in writeFileDataToCalendar
             this.perm.newCalendar(name, Color(0)) ?: throw Exception("Error creating Calendar from File")
@@ -651,12 +655,8 @@ class MutableCalendarsList(
             throw NoSuchElementException("There is no calendar named \"$name\"")
         val fileName = "$name.ics"
         val dest = destinationDir(fileName)
-        val internalFilePath = Path("${activity.filesDir}/deleted/$dest/$fileName")
-        val trashFilePath = Path("${activity.filesDir}/deleted/$dest/$fileName")
-        val syncDir = activity.syncDir.value ?: run {
-            Log.w("deleteFiles", "syncDir is NULL; Can't delete external file")
-            return
-        }
+        val internalFile = Path("${activity.filesDir}/$dest/$fileName")
+        val deletedFile = Path("${activity.filesDir}/deleted/$dest/$fileName")
 
         // Delete the Calendar from the list
         this.list.removeAt(index)
@@ -668,20 +668,24 @@ class MutableCalendarsList(
 
         // -- Copy internal file to recycle bin before deleting everything
         try {
-            internalFilePath.copyTo(trashFilePath, true)
+            internalFile.copyTo(deletedFile, true)
         } catch (e: Exception) {
-            throw IOException("Error copying \"$fileName\" to \"deleted/$dest\" directory: $e")
+            throw IOException("Error copying \"$fileName\" to \"deleted/$dest/\": $e")
         }
         // -- Delete the Calendar files
         // Delete from App's internal storage
         try {
-            if (!trashFilePath.delete())
+            if (!deletedFile.delete())
                 throw Exception("Unknown Reason")
         } catch (e: Exception) {
             throw IOException("Error deleting file in Internal Directory: $e")
         }
         // Delete from syncDir in shared storage.
         try {
+            val syncDir = activity.syncDir.value ?: run {
+                Log.w("deleteFiles", "syncDir is NULL; Can't delete external file")
+                return
+            }
             DocumentFile.fromTreeUri(activity.baseContext, syncDir)!!
                 .findFile(dest)!!
                 .findFile(fileName)
@@ -709,11 +713,12 @@ class MutableCalendarsList(
      * @throws Exception if an error occurs while working with the files or Content Provider. */
     private suspend fun restore(name: String) {
         val fileName = "$name.ics"
+        val dest = destinationDir(fileName)
         // The file in the "recycle bin"
-        val deleted = Path("${activity.filesDir.path}/deleted/calendars/$fileName")
+        val deletedFile = Path("${activity.filesDir.path}/deleted/$dest/$fileName")
         // The file in internal app storage that will be restored
-        val targetFile = activity.internalFile(fileName)
-        if (!deleted.exists())
+        val internalFile = Path("${activity.filesDir.path}/$dest/$fileName")
+        if (!deletedFile.exists())
             throw Exception("Tried to restore a calendar file that does not exist in the recycle bin")
 
         // A calendar with the same name could exist, because the one in recycle bin was overwritten.
@@ -722,14 +727,18 @@ class MutableCalendarsList(
         }
 
         // Copy file to internal dir
-        deleted.copyTo(targetFile)
+        try {
+            deletedFile.copyTo(internalFile)
+        } catch (e: Exception) {
+            throw IOException("Error copying \"$fileName\" from \"deleted/$dest/\" to \"$dest/\": $e")
+        }
         // Copy file to external dir
         DavSyncRs.import_file_external(activity.baseContext, fileName, activity.syncDir.value ?: run {
             Log.w("MutableCalendarList.restore", "syncDir is NULL; can't create external file")
             return
         })
         // File in recycle bin is no longer needed
-        deleted.delete()
+        deletedFile.delete()
         // Create entry in Content Provider ...
         this.perm.newCalendar(name, Color(DEFAULT_CALENDAR_COLOR))?.let { newCal ->
             // Add the Calendar to the list

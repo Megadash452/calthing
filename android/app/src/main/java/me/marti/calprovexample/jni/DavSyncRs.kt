@@ -27,7 +27,7 @@ object DavSyncRs {
 
     external fun merge_dirs(activity: MainActivity, externalDirUri: Uri)
 
-    private external fun import_file_internal(context: Context, fileUri: Uri): Byte
+    private external fun import_file_internal(context: Context, fileUri: Uri, fileName: String?): Byte
     /** Copy file's content into the internal *app's directory*.
      *
      * After a *successful* call to this function,
@@ -35,13 +35,15 @@ object DavSyncRs {
      *
      * ### Parameters
      * @param fileUri is the *Document Uri* of the file to be imported.
+     * @param fileName If not `NULL`, the file will be imported with this name.
      *
      * @return Returns [ImportFileResult.FileExists] if the file couldn't be imported because a file with that name already exists in the local directory. */
-    suspend fun importFileInternal(context: Context, fileUri: Uri): ImportFileResult {
-        val fileName = fileUri.fileName()!!
+    suspend fun importFileInternal(context: Context, fileUri: Uri, fileName: String? = null): ImportFileResult {
+        @Suppress("NAME_SHADOWING")
+        val fileName = fileName ?: fileUri.fileName()!!
         val calName = fileNameWithoutExtension(fileName)
         when (try {
-            import_file_internal(context, fileUri).toInt()
+            import_file_internal(context, fileUri, fileName).toInt()
         } catch (e: Exception) {
             Log.e("importFileInternal", "Error importing file. Thrown exception:\n$e")
             return ImportFileResult.Error

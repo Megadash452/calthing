@@ -7,6 +7,7 @@ import androidx.core.net.toUri
 import kotlinx.coroutines.runBlocking
 import me.marti.calprovexample.ui.MainActivity
 import me.marti.calprovexample.ui.SuspendDialog
+import me.marti.calprovexample.ui.isOnWorkThread
 import me.marti.calprovexample.ui.showToast
 import java.net.URLEncoder
 import java.util.concurrent.ExecutorService
@@ -137,20 +138,30 @@ fun Color(color: androidx.compose.ui.graphics.Color): Color {
 /** Calls [execute()][ExecutorService.execute], running [command] in a *coroutine context*.
  * Can *optionally* show a [Dialog][SuspendDialog] with a **message** while [command] runs.
  *
- * Will catch any **exceptions** that occur so that the main (UI) thread isn't terminated. */
+ * Will catch any **exceptions** that occur so that the main (UI) thread isn't terminated.
+ *
+ * If this is called from the same [work thread][ExecutorService],
+ * this won't call `execute()` again, but will simply run [command].
+ * This allows functions that are required to be run in another thread call other functions of the same nature
+ * without unnecessarily enqueueing more commands. */
 fun ExecutorService.launch(msg: String? = null, command: suspend () -> Unit) {
-    this.execute { runBlocking {
+    if (isOnWorkThread()) runBlocking {
         msg?.let { SuspendDialog.show(it) }
-        try {
-            command()
-        } catch (e: Exception) {
-            Log.e("WorkerThread", e.stackTraceToString())
-            msg?.let {
-                showToast("Error while running \"$msg\"")
-            } ?: showToast("Error occurred")
-        }
+        command()
         msg?.let { SuspendDialog.close() }
-    } }
+    } else
+        this.execute { runBlocking {
+            msg?.let { SuspendDialog.show(it) }
+            try {
+                command()
+            } catch (e: Exception) {
+                Log.e("WorkerThread", e.stackTraceToString())
+                msg?.let {
+                    showToast("Error while running \"$msg\"")
+                } ?: showToast("Error occurred")
+            }
+            msg?.let { SuspendDialog.close() }
+        } }
 }
 
 /** Get the file name for an URI that is a file or directory path.
