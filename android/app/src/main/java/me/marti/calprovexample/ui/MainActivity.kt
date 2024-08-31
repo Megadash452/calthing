@@ -83,7 +83,7 @@ internal fun isOnWorkThread(): Boolean {
     return Thread.currentThread().id == calendarWorkThreadId!!
 }
 
-private lateinit var weakActivity: WeakReference<MainActivity>
+lateinit var weakActivity: WeakReference<MainActivity>
 fun showToast(text: String) {
     weakActivity.get()?.let { activity ->
         activity.runOnUiThread {
@@ -675,7 +675,7 @@ class MutableCalendarsList(
         // -- Delete the Calendar files
         // Delete from App's internal storage
         try {
-            if (!deletedFile.delete())
+            if (!internalFile.delete())
                 throw Exception("Unknown Reason")
         } catch (e: Exception) {
             throw IOException("Error deleting file in Internal Directory: $e")

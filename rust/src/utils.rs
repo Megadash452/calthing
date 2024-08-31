@@ -107,7 +107,7 @@ pub fn get_app_dir(env: &mut JNIEnv, context: &JObject) -> PathBuf {
     PathBuf::from(get_string(env, JString::from(app_dir)))
 }
 
-/// Get the file name (*without extension*) out of the {doc_path} part of an Document Uri
+/// Get the file name (*without extension*) from a file name.
 pub fn file_stem(file_name: &str) -> &str {
     // Ignore the starting '.'
     file_name

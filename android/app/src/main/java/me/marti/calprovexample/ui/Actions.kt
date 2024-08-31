@@ -96,8 +96,15 @@ class NameCheck(val check: (String) -> Boolean, val error: String) {
             { name -> name.all { c -> !ILLEGAL_FILE_CHARACTERS.contains(c) } },
             "Name can't have ${ILLEGAL_FILE_CHARACTERS.joinToString { c -> "'$c'" }}"
         )
-        fun uniqueNameCheck(context: Context): NameCheck =
-            NameCheck({ name -> !java.io.File("${context.filesDir.path}/calendars/$name.ics").exists() }, "Name must be unique")
+        /** Checks that the name is unique among all Calendars, except **[oldName]**.
+         * Meaning that this will always return `true` if `newName == oldName`. */
+        fun uniqueNameCheck(oldName: String): NameCheck = NameCheck({ name ->
+            if (name == oldName)
+                return@NameCheck true
+            val appDir = weakActivity.get()?.baseContext?.filesDir?.path
+                ?: throw Exception("Unable to get files dir because activity was dropped.")
+            !java.io.File("$appDir/calendars/$name.ics").exists()
+        }, "Name must be unique")
 
         /** Perform all the checks on the `name`. Returns [error] of the [NameCheck] that failed. */
         fun List<NameCheck>.checkError(name: String): String? {
@@ -122,6 +129,7 @@ class NameCheck(val check: (String) -> Boolean, val error: String) {
  * @param name The initial display *name* of the Calendar being edited.
  * @param showColorPicker Whether the editor will show a button to bring up the Color Picker.
  * @param nameChecks An extra set of checks to determine if the *new name* is valid, aside from the default ones.
+ * Default name checks: [Blank][NameCheck.BlankCheck], [InvalidChars][NameCheck.InvalidCharsCheck], [UniqueName][NameCheck.uniqueNameCheck].
  * @param close Stop showing the dialog.
  * @param submit Handle the data submitted by the user. [close] is always called before this.
  *
@@ -143,7 +151,7 @@ fun EditCalendarAction(
     val nameChecks = nameChecks + listOf(
         NameCheck.BlankCheck,
         NameCheck.InvalidCharsCheck,
-        NameCheck.uniqueNameCheck(LocalContext.current),
+        NameCheck.uniqueNameCheck(name),
     )
     // The new name of the Calendar. Is the string argument of the `submit` function
     @Suppress("NAME_SHADOWING")

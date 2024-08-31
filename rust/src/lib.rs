@@ -303,8 +303,15 @@ pub fn import_file_external<'local>(
 ) {
     let external_dir_uri = DocUri::from_tree_uri(env, external_dir_uri).unwrap();
     let file_name = get_string(env, file_name);
-    import_file_external(env, &file_name, external_dir_uri, &context)
-        .unwrap_or_else(|err| panic!("{err}"))
+    if let Err(err) = import_file_external(env, &file_name, external_dir_uri, &context) {
+        // Failed to complete import because couldn't copy to external file.
+        // Delete the imported file in the internal directory.
+        let app_dir = get_app_dir(env, &context);
+        if let Err(err) = std::fs::remove_file(app_dir.join(SUFFIX_DIR).join(file_name)) {
+            panic!("Failed to delete internal imported file: {err}");
+        };
+        panic!("Failed to write to external file; deleted internal file.\nError: {err}");
+    }
 }
 /// Write the contents of the file already imported in the *internal directory* to the new file created in *sync directory* (external).
 fn import_file_external<'local>(

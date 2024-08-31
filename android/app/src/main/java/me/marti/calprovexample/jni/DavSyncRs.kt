@@ -6,14 +6,11 @@ import android.net.Uri
 import android.provider.CalendarContract
 import android.util.Log
 import me.marti.calprovexample.Color
-import me.marti.calprovexample.ElementExistsException
 import me.marti.calprovexample.calendar.DisplayCalendarProjection
-import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.calendar.getCursor
 import me.marti.calprovexample.fileName
 import me.marti.calprovexample.fileNameWithoutExtension
 import me.marti.calprovexample.ui.MainActivity
-import kotlin.jvm.Throws
 
 /** Rust functions that can be called from Java.
  * All the extern functions declared in this class are defined in `project root/rust/src/lib.rs` */
@@ -101,7 +98,7 @@ object DavSyncRsHelpersKt {
  * [code] is the return code from the Native function.
  * `calName` is the name of the imported Calendar as it should appear in the Content Provider.
  * If [code] is:
- * * **`0`**, there was an error and an Exception was was thrown. TODO: might just put the error in the String without throwing.
+ * * **`0`**, there was an error and an Exception was was thrown.
  * * **`1`**, the file was imported successfully.
  * * **`2`**, an imported calendar with that name already exists, ask user to *overwrite* or *pick another name*. */
 @Suppress("ConvertObjectToDataObject")

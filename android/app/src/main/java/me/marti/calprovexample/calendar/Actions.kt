@@ -241,9 +241,8 @@ suspend fun CalendarPermissionScope.newCalendar(name: String, color: Color): Int
 suspend fun CalendarPermissionScope.writeFileDataToCalendar(name: String) {
     try {
         this.newCalendar(name, Color(DEFAULT_CALENDAR_COLOR)) // TODO: use color from file
-    } catch (e: ElementExistsException) {
-
-    }
+    } catch (_: ElementExistsException) { }
+    
     // TODO: parse file contents and add them to the Content Provider
     // TODO: add to list without adding to provider
 }

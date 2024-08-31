@@ -1,6 +1,5 @@
 use crate::{
-    get_string,
-    utils::{Cursor, DocUri, OpenOptions},
+    file_stem, get_string, utils::{Cursor, DocUri, OpenOptions}
 };
 use jni::{
     objects::{JObject, JString},
@@ -337,7 +336,7 @@ impl<'local> ExternalDirEntry<'local> {
     }
     /// Get the name (*without extension*) of the file or directory of this entry.
     pub fn file_stem(&self) -> &str {
-        DocUri::doc_path_file_stem(self.file_name())
+        file_stem(self.file_name())
     }
 
     /// Get the *path-like* object for this entry.
