@@ -10,6 +10,8 @@ import me.marti.calprovexample.calendar.DisplayCalendarProjection
 import me.marti.calprovexample.calendar.getCursor
 import me.marti.calprovexample.fileName
 import me.marti.calprovexample.fileNameWithoutExtension
+import me.marti.calprovexample.ui.CalendarPermissionScope
+import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
 import me.marti.calprovexample.ui.MainActivity
 
 /** Rust functions that can be called from Java.
@@ -63,7 +65,7 @@ object DavSyncRs {
     /** Create the files in internal and external storage for a new Calendar the user created.
      *
      * If [externalDirUri] is **`NULL`**, only the file in app storage will be created.
-     * @param fileName must include the extension (e.g. `"name.ics"`). */
+     * @param fileName is the name of the file that will be created in each directory (e.g. `"name.ics"`). */
     external fun create_calendar_files(context: Context, fileName: String, color: Color, externalDirUri: Uri?)
 
     // /** Create a new Calendar entry in the Content Provider by reading the contents of a calendar file.
@@ -74,21 +76,19 @@ object DavSyncRs {
     // external fun new_calendar_from_file(context: Context, name: String): InternalUserCalendar
 
     external fun write_calendar_data_to_file(name: String)
+    external fun write_file_data_to_calendar(perm: CalendarPermissionScope, name: String, color: Color = Color(DEFAULT_CALENDAR_COLOR))
     external fun write_color_to_calendar_file(name: String, color: Color)
 }
 
-@Suppress("unused")
-object DavSyncRsHelpersKt {
-    fun checkUniqueName(contentResolver: ContentResolver, name: String): Boolean? {
-        // Check that a calendar with this name doesn't already exist
-        return contentResolver.acquireContentProviderClient(CalendarContract.CONTENT_URI)?.use { client ->
-            client.getCursor<DisplayCalendarProjection>(CalendarContract.Calendars.CONTENT_URI,
-                "${DisplayCalendarProjection.DISPLAY_NAME.column} = ?",
-                arrayOf(name)
-            )?.use { cursor ->
-                // If there already exists a calendar with this name,
-                cursor.moveToFirst()
-            }
+fun checkUniqueName(contentResolver: ContentResolver, name: String): Boolean? {
+    // Check that a calendar with this name doesn't already exist
+    return contentResolver.acquireContentProviderClient(CalendarContract.CONTENT_URI)?.use { client ->
+        client.getCursor<DisplayCalendarProjection>(CalendarContract.Calendars.CONTENT_URI,
+            "${DisplayCalendarProjection.DISPLAY_NAME.column} = ?",
+            arrayOf(name)
+        )?.use { cursor ->
+            // If there already exists a calendar with this name,
+            cursor.moveToFirst()
         }
     }
 }

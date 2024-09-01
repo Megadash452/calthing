@@ -115,11 +115,7 @@ impl<'local> ExternalDir<'local> {
     /// Returns [io::ErrorKind::AlreadyExists] if a file with this name already exists at this path.
     ///
     /// The **path** must be a relative path; an absolute path will cause an error.
-    pub fn create_file_at(
-        &self,
-        env: &mut JNIEnv<'local>,
-        path: impl AsRef<Path>,
-    ) -> io::Result<DocUri<'local>> {
+    pub fn create_file_at(&self, env: &mut JNIEnv<'local>, path: impl AsRef<Path>) -> io::Result<DocUri<'local>> {
         let path = path.as_ref();
         if path.is_absolute() {
             return Err(io::Error::new(
@@ -145,11 +141,7 @@ impl<'local> ExternalDir<'local> {
 
     /// Create a **file** in this directory.
     /// Returns [io::ErrorKind::AlreadyExists] if a file with this name already exists.
-    pub fn create_file(
-        &self,
-        env: &mut JNIEnv<'local>,
-        file_name: &str,
-    ) -> io::Result<DocUri<'local>> {
+    pub fn create_file(&self, env: &mut JNIEnv<'local>, file_name: &str) -> io::Result<DocUri<'local>> {
         // Check if file already exists
         if self.file_exists(env, file_name) {
             return Err(io::Error::new(
@@ -160,9 +152,7 @@ impl<'local> ExternalDir<'local> {
         let file_name = Path::new(&file_name);
         let ext = file_name
             .extension()
-            .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "File name has no extension")
-            })?
+            .ok_or_else(|| { io::Error::new(io::ErrorKind::InvalidInput, "File name has no extension")})?
             .to_str()
             .unwrap(); // Guaranteed to be UTF-8
         let file_stem = file_name
@@ -170,7 +160,7 @@ impl<'local> ExternalDir<'local> {
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Invalid filename"))?
             .to_str()
             .unwrap(); // Guaranteed to be UTF-8
-                       // Create the file
+        // Create the file
         self.create_document(
             env,
             file_stem,
@@ -184,11 +174,7 @@ impl<'local> ExternalDir<'local> {
     /// If the directory already exists at this path, it is opened without creating any directories.
     ///
     /// The **path** must be a relative path; an absolute path will cause an error.
-    pub fn create_dir_at(
-        &self,
-        env: &mut JNIEnv<'local>,
-        path: impl AsRef<Path>,
-    ) -> io::Result<Self> {
+    pub fn create_dir_at(&self, env: &mut JNIEnv<'local>, path: impl AsRef<Path>) -> io::Result<Self> {
         let path = path.as_ref();
         if path.is_absolute() {
             return Err(io::Error::new(
@@ -275,19 +261,13 @@ impl<'local> ExternalDir<'local> {
     /// **file_stem** is teh file name without extension.
     ///
     /// Check if document exists before calling this
-    fn create_document(
-        &self,
-        env: &mut JNIEnv<'local>,
-        file_stem: &str,
-        mime: &str,
-    ) -> io::Result<DocUri<'local>> {
+    fn create_document(&self, env: &mut JNIEnv<'local>, file_stem: &str, mime: &str) -> io::Result<DocUri<'local>> {
         let uri = call!(static android.provider.DocumentsContract::createDocument(
             android.content.ContentResolver(call!((self.context).getContentResolver() -> android.content.ContentResolver)),
             android.net.Uri(self.doc_uri.as_ref()),
             java.lang.String(JObject::from(env.new_string(mime).unwrap())),
             java.lang.String(JObject::from(env.new_string(file_stem).unwrap()))
-        ) -> Result<Option<android.net.Uri>, String>)
-            .map_err(|msg| io::Error::new(io::ErrorKind::NotFound, msg))?
+        ) -> Result<Option<android.net.Uri>, io::Error>)?
             .ok_or_else(|| io::Error::other("Failed to create file {file_name:?}, unknown reason"))?;
 
         DocUri::from_tree_uri(env, uri).map_err(|err| {

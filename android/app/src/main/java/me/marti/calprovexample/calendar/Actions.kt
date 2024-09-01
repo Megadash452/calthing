@@ -12,8 +12,6 @@ import me.marti.calprovexample.ElementExistsException
 import me.marti.calprovexample.PropertyKey
 import me.marti.calprovexample.R
 import me.marti.calprovexample.ui.CalendarPermissionScope
-import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
-import java.io.File as Path
 
 /** Display data about a calendar to the user.
  * @see ExternalUserCalendar
@@ -235,16 +233,6 @@ suspend fun CalendarPermissionScope.newCalendar(name: String, color: Color): Int
             importedFrom = null
         )
     }
-}
-
-/** Will create calendar in Content Provider if it doesn't yet exist */
-suspend fun CalendarPermissionScope.writeFileDataToCalendar(name: String) {
-    try {
-        this.newCalendar(name, Color(DEFAULT_CALENDAR_COLOR)) // TODO: use color from file
-    } catch (_: ElementExistsException) { }
-    
-    // TODO: parse file contents and add them to the Content Provider
-    // TODO: add to list without adding to provider
 }
 
 fun CalendarPermissionScope.editCalendar(id: Long, newName: String? = null, newColor: Color? = null, sync: Boolean? = null): Boolean {

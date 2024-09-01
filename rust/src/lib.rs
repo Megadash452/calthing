@@ -16,6 +16,7 @@ use std::{
     fs::File, io::ErrorKind, path::{Path, PathBuf}
 };
 
+pub use calendar::Java_me_marti_calprovexample_jni_DavSyncRs_write_1file_1data_1to_1calendar;
 pub use calendar::Java_me_marti_calprovexample_jni_DavSyncRs_write_1calendar_1data_1to_1file;
 pub use calendar::Java_me_marti_calprovexample_jni_DavSyncRs_write_1color_1to_1calendar_1file;
 

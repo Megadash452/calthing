@@ -1,10 +1,42 @@
 use std::{mem::transmute, path::PathBuf};
-use jni::objects::{JObject, JString};
-use jni_macros::{jni_fn, package};
-use crate::{file_stem, get_app_dir, get_string, DocUri, ExternalDir, ILLEGAL_FILE_CHARACTERS, SUFFIX_DIR};
+use jni::{objects::{JObject, JString}, JNIEnv};
+use jni_macros::{call, jni_fn, package, FromException};
+use crate::{file_stem, println, get_app_dir, get_string, DocUri, ExternalDir, ILLEGAL_FILE_CHARACTERS, SUFFIX_DIR};
 
 package!("me.marti.calprovexample");
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8
+}
+impl Color {
+    pub fn from_object(env: &mut JNIEnv, color: JObject) -> Self {
+        unsafe { Self {
+            r: transmute(
+                env.get_field(&color, "r", "B")
+                    .unwrap_or_else(|err| panic!("Error getting Color.r: {err}"))
+                    .b().unwrap_or_else(|err| panic!("Expected Color.r to be a byte: {err}"))
+            ),
+            g: transmute(
+                env.get_field(&color, "g", "B")
+                    .unwrap_or_else(|err| panic!("Error getting Color.g: {err}"))
+                    .b().unwrap_or_else(|err| panic!("Expected Color.g to be a byte: {err}"))
+            ),
+            b: transmute(
+                env.get_field(&color, "b", "B")
+                    .unwrap_or_else(|err| panic!("Error getting Color.b: {err}"))
+                    .b().unwrap_or_else(|err| panic!("Expected Color.b to be a byte: {err}"))
+            ),
+        } }
+    }
+}
+
+/// Create the files in internal and external storage for a new Calendar the user created.
+/// 
+/// If **external_dir_uri** is **`NULL`**, only the file in app storage will be created.
+/// **file_name** is the name of the file that will be created in each directory (e.g. `"name.ics"`). */
 #[jni_fn("jni.DavSyncRs")]
 pub fn create_calendar_files<'local>(
     context: JObject<'local>,
@@ -18,23 +50,6 @@ pub fn create_calendar_files<'local>(
     } else {
         Some(DocUri::from_tree_uri(env, external_dir_uri).unwrap())
     };
-    let rgb_color = unsafe { (
-        transmute(
-            env.get_field(&color, "r", "B")
-                .unwrap_or_else(|err| panic!("Error getting Color.r: {err}"))
-                .b().unwrap_or_else(|err| panic!("Expected Color.r to be a byte: {err}"))
-        ),
-        transmute(
-            env.get_field(&color, "g", "B")
-                .unwrap_or_else(|err| panic!("Error getting Color.g: {err}"))
-                .b().unwrap_or_else(|err| panic!("Expected Color.g to be a byte: {err}"))
-        ),
-        transmute(
-            env.get_field(&color, "b", "B")
-                .unwrap_or_else(|err| panic!("Error getting Color.b: {err}"))
-                .b().unwrap_or_else(|err| panic!("Expected Color.b to be a byte: {err}"))
-        ),
-    ) };
     
     // Check for illegal characters
     if file_name.contains(ILLEGAL_FILE_CHARACTERS) {
@@ -52,11 +67,31 @@ pub fn create_calendar_files<'local>(
             .unwrap_or_else(|err| panic!("Error creating external file: {err}"));
     }
 
-    write_color_to_calendar_file(file_stem(&file_name), rgb_color);
+    write_color_to_calendar_file(file_stem(&file_name), Color::from_object(env, color));
 }
 
-pub fn write_file_data_to_calendar(name: &str, rgb_color: (u8, u8, u8)) {
-    // TODO:
+/// Read a *Calendar file* and write the data to the Calendar *Content Provider*.
+/// 
+/// Creates a new Calendar in the Content Provider if one with **name** does not exist.
+#[jni_fn("jni.DavSyncRs")]
+pub fn write_file_data_to_calendar<'local>(perm: JObject, name: JString, color: JObject) {
+    #[derive(FromException)]
+    #[class(me.marti.calprovexample.ElementExistsException)]
+    struct ElementExists;
+    
+    // let context = call!(perm.getContext() -> android.content.Context);
+
+    // Create the calendar if it does not exist. Ignore the result
+    let _ = call!(static me.marti.calprovexample.calendar.ActionsKt::newCalendar(
+        me.marti.calprovexample.ui.CalendarPermissionScope(perm),
+        java.lang.String(name),
+        me.marti.calprovexample.Color(color),
+        kotlin.coroutines.Continuation(JObject::null())
+    ) -> Result<Option<java.lang.Object>, ElementExists>)
+        .inspect(|r| if r.is_none() { panic!("Failed creating calendar") });
+    
+    // TODO: parse file contents and add them to the Content Provider
+    // TODO: add to list without adding to provider
 }
 
 #[jni_fn("jni.DavSyncRs")]
@@ -65,9 +100,9 @@ pub fn write_calendar_data_to_file<'local>(name: JString) {
 }
 
 #[jni_fn("jni.DavSyncRs")]
-pub fn write_color_to_calendar_file<'local>(name: JString, rgb_color: JObject) {
+pub fn write_color_to_calendar_file<'local>(name: JString, color: JObject) {
     // TODO:
 }
-fn write_color_to_calendar_file(name: &str, rgb_color: (u8, u8, u8)) {
+fn write_color_to_calendar_file(name: &str, color: Color) {
     // TODO:
 }

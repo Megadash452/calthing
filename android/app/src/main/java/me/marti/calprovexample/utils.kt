@@ -154,7 +154,7 @@ fun ExecutorService.launch(msg: String? = null, command: suspend () -> Unit) {
             msg?.let { SuspendDialog.show(it) }
             try {
                 command()
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e("WorkerThread", e.stackTraceToString())
                 msg?.let {
                     showToast("Error while running \"$msg\"")

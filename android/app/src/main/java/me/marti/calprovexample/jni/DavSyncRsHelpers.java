@@ -1,23 +1,22 @@
 package me.marti.calprovexample.jni;
 
+import static me.marti.calprovexample.ui.MainActivityKt.weakActivity;
+
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.DocumentsContract;
-
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.Objects;
 
 /** @noinspection unused*/
 public final class DavSyncRsHelpers {
-    static boolean checkUniqueName(@NonNull Context context, @NonNull String name) throws Exception {
-        Boolean result = DavSyncRsHelpersKt.INSTANCE.checkUniqueName(context.getContentResolver(), name);
+    static boolean checkUniqueName(@NonNull Context context, @NonNull String name) throws NullPointerException {
+        Boolean result = DavSyncRsKt.checkUniqueName(context.getContentResolver(), name);
         if (result == null) {
-            throw new Exception("Failed to query Content Provider (was NULL)");
+            throw new NullPointerException("Failed to query Content Provider (was NULL)");
         } else {
             return result;
         }

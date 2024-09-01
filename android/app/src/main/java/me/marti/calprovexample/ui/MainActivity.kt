@@ -60,7 +60,6 @@ import me.marti.calprovexample.calendar.externalUserCalendars
 import me.marti.calprovexample.calendar.getData
 import me.marti.calprovexample.calendar.internalUserCalendars
 import me.marti.calprovexample.calendar.newCalendar
-import me.marti.calprovexample.calendar.writeFileDataToCalendar
 import me.marti.calprovexample.destinationDir
 import me.marti.calprovexample.externalFile
 import me.marti.calprovexample.fileNameWithoutExtension
@@ -103,7 +102,7 @@ class MainActivity : ComponentActivity() {
                 ?: return@launch
             val calendars = perm.internalUserCalendars()!!.map { it.name }
             for (file in internalFiles.filter { !calendars.contains(it.name) })
-                perm.writeFileDataToCalendar(fileNameWithoutExtension(file.name))
+                DavSyncRs.write_file_data_to_calendar(perm, fileNameWithoutExtension(file.name))
             // Init list if it's not already
             println("sync list with content provider")
             userCalendars.value?.syncWithProvider() ?: run {
@@ -443,9 +442,9 @@ class MutableCalendarsList(
         activity.showSnackbar("Calendar deleted") { result ->
             when (result) {
                 // Restore Calendar when user presses "Undo"
-                SnackbarResult.ActionPerformed -> this.restore(name)
+                SnackbarResult.ActionPerformed -> calendarWorkThread.launch { this.restore(name) }
                 // Fully delete Calendar by deleting file in recycle bin
-                SnackbarResult.Dismissed -> this.finishRemove(name)
+                SnackbarResult.Dismissed -> calendarWorkThread.launch { this.finishRemove(name) }
             }
         }
     }
@@ -566,7 +565,7 @@ class MutableCalendarsList(
                 this.list.add(newCal)
             } ?: throw Exception("Error creating new calendar")
             // Fill data in Content Provider
-            this.perm.writeFileDataToCalendar(name)
+            DavSyncRs.write_file_data_to_calendar(this.perm, name)
         }
     }
 
@@ -631,7 +630,7 @@ class MutableCalendarsList(
             // Create entry in Content Provider
             // Color doesn't matter, as it will be assigned in writeFileDataToCalendar
             this.perm.newCalendar(name, Color(0)) ?: throw Exception("Error creating Calendar from File")
-            this.perm.writeFileDataToCalendar(name)
+            DavSyncRs.write_file_data_to_calendar(this.perm, name)
             // Add Calendar to the list
             this.list.add(this.perm.getData(name)
                 ?: throw Exception("Error getting data of newly added Calendar")
@@ -745,7 +744,7 @@ class MutableCalendarsList(
             this.list.add(newCal)
         } ?: throw Exception("Error creating new calendar")
         // ... and parse the file's content
-        this.perm.writeFileDataToCalendar(name)
+        DavSyncRs.write_file_data_to_calendar(this.perm, name)
     }
 
     // MutableMap and List overrides
