@@ -1,7 +1,7 @@
 use std::{mem::transmute, path::PathBuf};
 use jni::{objects::{JObject, JString}, JNIEnv};
 use jni_macros::{call, jni_fn, package, FromException};
-use crate::{file_stem, println, get_app_dir, get_string, DocUri, ExternalDir, ILLEGAL_FILE_CHARACTERS, SUFFIX_DIR};
+use crate::{file_stem, get_app_dir, get_string, DocUri, ExternalDir, ILLEGAL_FILE_CHARACTERS, SUFFIX_DIR};
 
 package!("me.marti.calprovexample");
 
