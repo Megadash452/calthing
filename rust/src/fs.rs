@@ -5,7 +5,7 @@ use jni::{
     objects::{JObject, JString},
     JNIEnv,
 };
-use jni_macros::call;
+use ez_jni::call;
 use std::{
     io,
     path::{Component, Path},
@@ -56,9 +56,9 @@ impl<'local> ExternalDir<'local> {
                 android.net.Uri(self.doc_uri.as_ref())
             ) -> Result<android.database.Cursor, String>)
             .unwrap_or_else(|e| {
-                let doc_uri_str =
-                    JString::from(call!((self.doc_uri.as_ref()).toString() -> java.lang.String));
-                let doc_uri_str = get_string(env, doc_uri_str);
+                let doc_uri_str = get_string(JString::from(
+                    call!((self.doc_uri.as_ref()).toString() -> java.lang.String)
+                ), env);
                 panic!("Failed to query entries of {doc_uri_str:?}:\n{e}")
             }),
         );
@@ -76,8 +76,8 @@ impl<'local> ExternalDir<'local> {
 
             entries.push(ExternalDirEntry {
                 doc_uri: DocUri::new_unchecked(doc_uri),
-                doc_id: get_string(env, doc_id),
-                mime_type: get_string(env, mime_type),
+                doc_id: get_string(doc_id, env),
+                mime_type: get_string(mime_type, env),
                 flags,
             });
         }

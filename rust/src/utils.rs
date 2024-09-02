@@ -2,83 +2,12 @@ use jni::{
     objects::{JObject, JObjectArray, JString},
     JNIEnv,
 };
-use jni_macros::call;
+use ez_jni::{call, utils::get_string};
 use std::{
     fmt::Display,
     io,
     path::{Path, PathBuf},
 };
-
-// pub static mut ENV: Option<*mut JNIEnv<'static>> = None;
-
-#[macro_export]
-macro_rules! println {
-    ($env:expr, $($arg:tt)*) => {
-        $crate::utils::__println($env, format!($($arg)*))
-    };
-    // ($($arg:tt)*) => {
-    //     $crate::utils::__println_unsafe(format!($($arg)*))
-    // };
-}
-#[macro_export]
-macro_rules! eprintln {
-    ($env:expr, $($arg:tt)*) => {
-        $crate::utils::__eprintln($env, format!($($arg)*))
-    };
-}
-
-// #[allow(dead_code)]
-// #[doc(hidden)]
-// pub fn __println_unsafe(s: String) {
-//     if let Some(env) = unsafe { ENV.map(|e| &mut *e) } {
-//         __println(env, s)
-//     }
-// }
-
-/// Print a **message** to the Android logger.
-///
-/// Android ignores the `STDOUT` and `STDERR` files and uses some other Log system that is unknown to me atm,
-/// so to get any message error or debug message at runtime the native code would need to call the Log methods.
-#[allow(dead_code)]
-#[doc(hidden)]
-pub fn __println(env: &mut JNIEnv, s: String) {
-    call!(static android.util.Log::i(
-        java.lang.String(JObject::from(env.new_string("Rust").unwrap())),
-        java.lang.String(JObject::from(env.new_string(s).unwrap()))
-    ) -> int);
-}
-/// Print an **error** to the Android logger.
-///
-/// Android ignores the `STDOUT` and `STDERR` files and uses some other Log system that is unknown to me atm,
-/// so to get any message error or debug message at runtime the native code would need to call the Log methods.
-#[allow(dead_code)]
-#[doc(hidden)]
-pub fn __eprintln(env: &mut JNIEnv, s: String) {
-    call!(static android.util.Log::e(
-        java.lang.String(env.new_string("Rust").unwrap()),
-        java.lang.String(env.new_string(s).unwrap()),
-    ) -> int);
-}
-
-/// Get a [`String`] from a native function argument.
-///
-/// Only use this if the argument declared on the Java side has the form of `String`.
-#[allow(dead_code)]
-pub fn get_string(env: &JNIEnv, arg: JString) -> String {
-    String::from(unsafe {
-        env.get_string_unchecked(&arg)
-            .expect("String argument can't be NULL")
-    })
-}
-/// Get a nullable [`String`] from a native function argument.
-///
-/// Only use this if the arugment declared on the Java side has the form of `String` or `String?`.
-#[allow(dead_code)]
-pub fn get_nullable_string(env: &JNIEnv, arg: JString) -> Option<String> {
-    unsafe { env.get_string_unchecked(&arg) }
-        .ok()
-        .map(String::from)
-}
 
 fn string_array<'local>(env: &mut JNIEnv<'local>, src: &[&str]) -> JObjectArray<'local> {
     let array = env
@@ -102,9 +31,9 @@ fn string_array<'local>(env: &mut JNIEnv<'local>, src: &[&str]) -> JObjectArray<
 /// Returns the directory owned by this App (where it's files are stored) in the Android System.
 pub fn get_app_dir(env: &mut JNIEnv, context: &JObject) -> PathBuf {
     let mut app_dir = call!(context.getFilesDir() -> java.io.File);
-    app_dir = call!(app_dir.getPath() -> java.lang.String);
-
-    PathBuf::from(get_string(env, JString::from(app_dir)))
+    PathBuf::from(get_string(JString::from(
+        call!(app_dir.getPath() -> java.lang.String)
+    ), env))
 }
 
 /// Get the file name (*without extension*) from a file name.
@@ -188,7 +117,7 @@ impl<'local> DocUri<'local> {
             segments
                 .next(env)
                 .unwrap()
-                .map(|seg| get_string(env, JString::from(seg)))
+                .map(|seg| get_string(JString::from(seg), env))
                 .expect("Unexpected end of Uri Segments")
         }
 
@@ -220,7 +149,7 @@ impl<'local> DocUri<'local> {
             segments
                 .next(env)
                 .unwrap()
-                .map(|seg| get_string(env, JString::from(seg)))
+                .map(|seg| get_string(JString::from(seg), env))
                 .expect("Unexpected end of Uri Segments")
         }
 
@@ -265,10 +194,10 @@ impl<'local> DocUri<'local> {
     /// Get the name of the file or directory for this Uri.
     /// Similar to [Path::file_name()].
     pub fn file_name(&self, env: &mut JNIEnv) -> String {
-        let last_segment = JString::from(
-            call!((self.0).getLastPathSegment() -> Option<java.lang.String>).unwrap(),
-        );
-        let doc_path = get_string(env, last_segment);
+        let doc_path = get_string(JString::from(
+            call!((self.0).getLastPathSegment() -> Option<java.lang.String>)
+                .unwrap(),
+        ), env);
         Self::doc_path_file_name(&doc_path).to_string()
     }
     /// Get the [name](Self::file_name()) (*without extension*) of the file or directory for this Uri.
@@ -301,12 +230,11 @@ impl<'local> DocUri<'local> {
                 android.net.Uri(self.0),
                 java.lang.String(env.new_string(path).unwrap())
             ) -> Option<android.net.Uri>)
-            .unwrap_or_else(|| {
-                panic!("Passed in an invalid Uri to joinDocUri: {}", {
-                    let s = JString::from(call!((self.0).toString() -> java.lang.String));
-                    get_string(env, s)
-                })
-            }),
+                .unwrap_or_else(|| panic!("Passed in an invalid Uri to joinDocUri: {}",
+                    get_string(JString::from(
+                        call!((self.0).toString() -> java.lang.String)
+                    ), env)
+                )),
         )
     }
 }

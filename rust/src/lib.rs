@@ -2,7 +2,6 @@
 
 mod calendar;
 mod fs;
-mod throw;
 mod utils;
 use fs::*;
 use utils::*;
@@ -11,7 +10,7 @@ use jni::{
     objects::{JObject, JString},
     JNIEnv,
 };
-use jni_macros::{call, jni_fn, package};
+use ez_jni::{call, jni_fn, package, utils::get_string};
 use std::{
     fs::File, io::ErrorKind, path::{Path, PathBuf}
 };
@@ -243,11 +242,8 @@ pub enum ImportResult {
 #[jni_fn("jni.DavSyncRs")]
 pub fn import_file_internal<'local>(context: JObject<'local>, file_uri: JObject<'local>, file_name: JString<'local>) -> ImportResult {
     let file_uri = DocUri::from_doc_uri(env, file_uri).unwrap();
-    let file_name = if file_name.is_null() {
-        None
-    } else {
-        Some(get_string(env, file_name))
-    };
+    let file_name = (!file_name.is_null())
+        .then(|| get_string(file_name, env));
     if import_file_internal(env, file_uri, file_name.as_ref().map(|s| s.as_str()), context).unwrap_or_else(|err| panic!("{err}")) {
         ImportResult::Success
     } else {
@@ -303,7 +299,7 @@ pub fn import_file_external<'local>(
     external_dir_uri: JObject<'local>,
 ) {
     let external_dir_uri = DocUri::from_tree_uri(env, external_dir_uri).unwrap();
-    let file_name = get_string(env, file_name);
+    let file_name = get_string(file_name, env);
     if let Err(err) = import_file_external(env, &file_name, external_dir_uri, &context) {
         // Failed to complete import because couldn't copy to external file.
         // Delete the imported file in the internal directory.

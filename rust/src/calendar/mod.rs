@@ -1,7 +1,7 @@
 use std::{mem::transmute, path::PathBuf};
+use ez_jni::{call, jni_fn, package, utils::get_string, FromException};
 use jni::{objects::{JObject, JString}, JNIEnv};
-use jni_macros::{call, jni_fn, package, FromException};
-use crate::{file_stem, get_app_dir, get_string, DocUri, ExternalDir, ILLEGAL_FILE_CHARACTERS, SUFFIX_DIR};
+use crate::{file_stem, get_app_dir, DocUri, ExternalDir, ILLEGAL_FILE_CHARACTERS, SUFFIX_DIR};
 
 package!("me.marti.calprovexample");
 
@@ -44,7 +44,7 @@ pub fn create_calendar_files<'local>(
     color: JObject<'local>,
     external_dir_uri: JObject<'local>,
 ) {
-    let file_name = get_string(env, file_name);
+    let file_name = get_string(file_name, env);
     let external_dir_uri = if external_dir_uri.is_null() {
         None
     } else {
