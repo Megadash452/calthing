@@ -577,7 +577,7 @@ class MutableCalendarsList(
             val importErrorToast = "Error importing file"
 
             // Import to internal file first
-            val result = DavSyncRs.importFileInternal(activity.baseContext, fileUri)
+            val result = DavSyncRs.import_file_internal(activity.baseContext, fileUri)
 
             val name = when (result) {
                 is ImportFileResult.Success -> result.calName
@@ -604,7 +604,7 @@ class MutableCalendarsList(
                     }
 
                     // Retry import under new conditions
-                    when (DavSyncRs.importFileInternal(activity.baseContext, fileUri, "$finalName.ics")) {
+                    when (DavSyncRs.import_file_internal(activity.baseContext, fileUri, "$finalName.ics")) {
                         is ImportFileResult.Error -> {
                             showToast(importErrorToast)
                             return@launch

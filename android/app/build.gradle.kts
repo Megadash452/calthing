@@ -1,7 +1,22 @@
+import org.gradle.kotlin.dsl.internal.sharedruntime.support.classFilePathCandidatesFor
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    // id("io.github.andrefigas.rustjni") version "0.0.19"
 }
+
+// rustJni {
+//     jniHost = "me.marti.calprovexample.jni.DavSyncRs"
+//     libName = "davsync"
+//     ndkVersion = "latest"
+//     architectures {
+//         armv7_linux_androideabi("armv7a-linux-androideabi26-clang")
+//         aarch64_linux_android("aarch64-linux-android26-clang")
+//         i686_linux_android("i686-linux-android26-clang")
+//         x86_64_linux_android("x86_64-linux-android26-clang")
+//     }
+// }
 
 android {
     namespace = "me.marti.calprovexample"

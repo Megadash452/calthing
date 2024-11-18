@@ -1,7 +1,5 @@
 package me.marti.calprovexample.jni;
 
-import static me.marti.calprovexample.ui.MainActivityKt.weakActivity;
-
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;

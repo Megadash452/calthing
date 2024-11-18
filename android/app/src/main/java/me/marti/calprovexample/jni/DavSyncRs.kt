@@ -4,19 +4,16 @@ import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.provider.CalendarContract
-import android.util.Log
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.calendar.DisplayCalendarProjection
 import me.marti.calprovexample.calendar.getCursor
-import me.marti.calprovexample.fileName
-import me.marti.calprovexample.fileNameWithoutExtension
 import me.marti.calprovexample.ui.CalendarPermissionScope
 import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
 import me.marti.calprovexample.ui.MainActivity
 
 /** Rust functions that can be called from Java.
  * All the extern functions declared in this class are defined in `project root/rust/src/lib.rs` */
-@Suppress("FunctionName", "RedundantSuspendModifier")
+@Suppress("FunctionName")
 object DavSyncRs {
     init { System.loadLibrary("davsync") }
 
@@ -26,38 +23,16 @@ object DavSyncRs {
 
     external fun merge_dirs(activity: MainActivity, externalDirUri: Uri)
 
-    private external fun import_file_internal(context: Context, fileUri: Uri, fileName: String?): Byte
     /** Copy file's content into the internal *app's directory*.
      *
      * After a *successful* call to this function,
      * the caller should create a file in the external directory and call [`import_file_external()`].
      *
-     * ### Parameters
      * @param fileUri is the *Document Uri* of the file to be imported.
-     * @param fileName If not `NULL`, the file will be imported with this name.
+     * @param fileName If not `NULL`, the file will be imported with this name instead of the *fileName* of [fileUri].
      *
      * @return Returns [ImportFileResult.FileExists] if the file couldn't be imported because a file with that name already exists in the local directory. */
-    suspend fun importFileInternal(context: Context, fileUri: Uri, fileName: String? = null): ImportFileResult {
-        @Suppress("NAME_SHADOWING")
-        val fileName = fileName ?: fileUri.fileName()!!
-        val calName = fileNameWithoutExtension(fileName)
-        when (try {
-            import_file_internal(context, fileUri, fileName).toInt()
-        } catch (e: Exception) {
-            Log.e("importFileInternal", "Error importing file. Thrown exception:\n$e")
-            return ImportFileResult.Error
-        }) {
-            1 -> {
-                Log.d("importFileInternal", "file '${fileName}' imported successfully")
-                return ImportFileResult.Success(calName)
-            }
-            2 -> {
-                Log.d("importFileInternal", "'${fileName}' is already imported. Overwrite?")
-                return ImportFileResult.FileExists(calName)
-            }
-            else -> throw IllegalStateException("*prowler sfx*")
-        }
-    }
+    external fun import_file_internal(context: Context, fileUri: Uri, fileName: String? = null): ImportFileResult
 
     /** Copy a file named **file_name** from the *internal directory* to the **external directory** in Shared Storage. */
     external fun import_file_external(context: Context, fileName: String, externalDirUri: Uri)
@@ -93,7 +68,7 @@ fun checkUniqueName(contentResolver: ContentResolver, name: String): Boolean? {
     }
 }
 
-/** Result from calling Native function [DavSyncRs.importFileInternal].
+/** Result from calling Native function [DavSyncRs.import_file_internal].
  *
  * [code] is the return code from the Native function.
  * `calName` is the name of the imported Calendar as it should appear in the Content Provider.
