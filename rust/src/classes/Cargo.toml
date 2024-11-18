@@ -1,0 +1,11 @@
+[package]
+name = "classes"
+edition = "2021"
+
+[lib]
+path = "./lib.rs"
+
+[dependencies]
+ez_jni = { workspace = true }
+jni = { workspace = true }
+mime_guess = { workspace = true }
