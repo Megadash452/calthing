@@ -2,10 +2,10 @@ mod calendar;
 mod utils;
 
 use jni::{JNIEnv, objects::JObject};
-use ez_jni::{call, jni_fn};
+use ez_jni::{call, jni_fn, new};
 use std::{io, path::PathBuf};
 use utils::get_app_dir;
-use classes::fs::{ExternalDir, DocUri, OpenOptions};
+use classes::fs::{file_stem, DocUri, ExternalDir, OpenOptions};
 
 /// These are the names of the directories where synced data will be stored
 const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
@@ -14,13 +14,6 @@ const DIRECTORIES: [&str; 2] = ["calendars", "contacts"];
 // TODO: will change so that it is automatically detected whether to use "calendar" or "contacts" depending on the file type.
 const SUFFIX_DIR: &str = "calendars";
 const ILLEGAL_FILE_CHARACTERS: [char; 3] = ['/', '*', ':'];
-
-#[repr(i8)]
-pub enum ImportResult {
-    Error,
-    Success,
-    FileExists,
-}
 
 jni_fn! { me.marti.calprovexample.jni.DavSyncRs =>
     /// Initialize the **internal** and **external** directories by creating all necessary sub-directories (e.g. calendars and contacts directories).
@@ -189,17 +182,24 @@ jni_fn! { me.marti.calprovexample.jni.DavSyncRs =>
     ///
     /// ### Parameters
     /// **file_uri** is the *Document Uri* of the file to be imported.
-    /// **file_name**: If not `NULL`, the file will be imported with this name.
+    /// **file_name**: If not `NULL`, the file will be imported with this name instead of the *fileName* of **fileUri**.
     /// **context**: `android.content.Context`.
     ///
     /// ### Return
     /// Returns [`ImportResult::FileExists`] if the file couln't be imported because a file with that name already exists in the internal directory.
-    pub fn import_file_internal<'local>(context: android.content.Context, file_uri: android.net.Uri, file_name: Option<String>) -> byte {
+    pub fn import_file_internal<'local>(context: android.content.Context, file_uri: android.net.Uri, file_name: Option<String>) -> me.marti.calprovexample.jni.ImportFileResult {
         let file_uri = DocUri::from_doc_uri(env, file_uri).unwrap();
-        if import_file_internal(env, file_uri, file_name.as_ref().map(|s| s.as_str()), context).unwrap_or_else(|err| panic!("{err}")) {
-            ImportResult::Success as i8
+        let file_name = file_name.unwrap_or_else(|| file_uri.file_name(env));
+        let cal_name = file_stem(&file_name);
+
+        if import_file_internal(env, file_uri, &file_name, context)
+            .unwrap_or_else(|err| panic!("{err}"))
+        {
+            println!("file '{file_name}' imported successfully");
+            new!(me.marti.calprovexample.jni.ImportFileResult$Success(String(cal_name)))
         } else {
-            ImportResult::FileExists as i8
+            println!("'{file_name}' is already imported. Overwrite?");
+            new!(me.marti.calprovexample.jni.ImportFileResult$FileExists(String(cal_name)))
         }
     }
 
@@ -233,7 +233,7 @@ jni_fn! { me.marti.calprovexample.jni.DavSyncRs =>
     //     context: JObject,
     // ) -> Result<NonNull<_jobject>, String> {
     //     // Check that a calendar with this name doesn't already exist
-    //     let exists = call!(static me.marti.calprovexample.jni.DavSyncRsHelpers::checkUniqueName(
+    //     let exists = call!(static me.marti.calprovexample.jni.DavSyncRsKt.checkUniqueName(
     //         android.content.Context(context),
     //         java.lang.String(env.new_string(&name).unwrap())
     //     ) -> Result<bool, String>)?;
@@ -245,14 +245,11 @@ jni_fn! { me.marti.calprovexample.jni.DavSyncRs =>
 fn import_file_internal<'local>(
     env: &mut JNIEnv<'local>,
     file_uri: DocUri<'local>,
-    file_name: Option<&str>,
+    file_name: &str,
     context: JObject<'local>,
 ) -> Result<bool, String> {
     let internal_dir = get_app_dir(env, &context).join(SUFFIX_DIR);
-    let file_path = match file_name {
-        Some(file_name) => internal_dir.join(file_name),
-        None => internal_dir.join(file_uri.file_name(env))
-    };
+    let file_path = internal_dir.join(file_name);
 
     // Ensure the destination directory is created (internal)
     std::fs::create_dir_all(&internal_dir).map_err(|error| {

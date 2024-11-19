@@ -114,7 +114,6 @@ import me.marti.calprovexample.R
 import me.marti.calprovexample.calendar.InternalUserCalendar
 import me.marti.calprovexample.calendar.UserCalendarListItem
 import me.marti.calprovexample.tryMap
-import me.marti.calprovexample.ui.AsyncDialog.Dialog
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import me.marti.calprovexample.Color as InternalColor
 
@@ -852,48 +851,62 @@ fun PlainTooltipBox(modifier: Modifier = Modifier, enabled: Boolean = true, tool
     )
 }
 
-/** A dialog with *Cancel/Confirm* buttons that can be shown while waiting for a response from the user.
+/** A general **dialog** that is shown while waiting for something,
+ * whether that be *user input* or a thread to *finish work*.
+ *
+ * A dialog with *Cancel/Confirm* buttons that can be shown while waiting for a response from the user.
  *
  * [Dialog] must be included in the **Activity**'s composition for it to be rendered. */
 object AsyncDialog {
-    /** Show a dialog with a message and wait for a response.
+    /** Show a **dialog** with a message and wait for a response.
+     *
+     * The dialog will have a *Confirm* and a *Cancel* button.
+     *
      * @return **`true`** when user clicks *Ok*, and **`false`** when user dismisses dialog. */
-    suspend fun show(msg: String): Boolean {
+    suspend fun prompt(msg: String): Boolean {
         this.channel.tryReceive() // clear channel
-        this.content = Content.Text(msg, true)
+        this.content = Content.TextPrompt(msg, true)
         return this.channel.receive()
     }
 
-    /** Like [show], but will not allow the user to *Cancel* the dialog and will only show the *Ok* button. */
-    suspend fun showNoCancel(msg: String) {
+    /** Like [prompt], but will only show the *Ok* button. */
+    suspend fun promptConfirm(msg: String) {
         this.channel.tryReceive() // clear channel
-        this.content = Content.Text(msg, false)
+        this.content = Content.TextPrompt(msg, false)
         this.channel.receive()
     }
 
-    /** Show a dialog with some custom content and wait for a response.
+    /** Show a **dialog** with some custom content and wait for a response.
      * @param dialog The composable dialog that will be shown.
      * The dialog will call the **`close`** function when it is done (either dismissed or user submitted). */
-    suspend fun showDialog(dialog: @Composable (close: () -> Unit) -> Unit) {
+    suspend fun promptDialog(dialog: @Composable (close: () -> Unit) -> Unit) {
         this.channel.tryReceive() // clear channel
-        this.content = Content.Custom(dialog)
+        this.content = Content.CustomPrompt(dialog)
         this.channel.receive()
     }
+
+    /** Show a **dialog** with a [Spinner][CircularProgressIndicator] and a **message** while work is being done. */
+    fun suspendMessage(message: String) { this.content = Content.SuspendMessage(message) }
+
+    /** Close the current Dialog (if any), setting content to `null`. */
+    fun close() { this.content = null }
 
     /** Sum type representing the type of data the caller submitted. */
     private sealed class Content private constructor() {
-        /** The caller just wants to show a simple dialog with some text. */
-        class Text(
+        class SuspendMessage(val message: String): Content()
+        /** The caller just wants to show a simple dialog with a
+         * *text prompt* and *response buttons*. */
+        class TextPrompt(
             /** The text body of the dialog. */
             val message: String,
             /** Whether the dialog can be canceled, or will it only show an Ok button. */
             val cancel: Boolean
         ) : Content()
         /** The caller wants to show a custom dialog. */
-        class Custom(val dialog: @Composable (close: () -> Unit) -> Unit): Content()
+        class CustomPrompt(val dialog: @Composable (close: () -> Unit) -> Unit): Content()
     }
 
-    /** Send message from [Dialog] to the suspend function [show].
+    /** Send message from [Dialog] to the suspend function [prompt].
      *  Sends **`true`** when user clicks *Ok*.
      *  Sends **`false`** when user clicks *Cancel* or outside the dialog. */
     private val channel = Channel<Boolean>()
@@ -908,7 +921,25 @@ object AsyncDialog {
                 this.content = null
             }
             when (it) {
-                is Content.Text -> {
+                is Content.SuspendMessage -> {
+                    // Set dismissOnBackPress to false so that the dialog doesn't eat the BackButton event
+                    androidx.compose.ui.window.Dialog({}, DialogProperties(dismissOnBackPress = false)) {
+                        Surface(
+                            shape = MaterialTheme.shapes.large,
+                            tonalElevation = AlertDialogDefaults.TonalElevation,
+                        ) {
+                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    strokeCap = StrokeCap.Round,
+                                    strokeWidth = 5.dp
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text(it.message)
+                            }
+                        }
+                    }
+                }
+                is Content.TextPrompt -> {
                     AlertDialog(
                         confirmButton = { TextButton(onClick = {
                             this.channel.trySend(true)
@@ -923,39 +954,7 @@ object AsyncDialog {
                         text = { Text(it.message) }
                     )
                 }
-                is Content.Custom -> it.dialog(cancel)
-            }
-        }
-    }
-}
-
-/** A Dialog that shows a [Spinner][CircularProgressIndicator] and a **message** while work is being done.
- *
- * [Dialog] must be included in the **Activity**'s composition for it to be rendered.*/
-object SuspendDialog {
-    fun show(message: String) { this.message = message  }
-    fun close() { this.message = null }
-
-    private var message: String? by mutableStateOf(null)
-
-    @Composable
-    fun Dialog() {
-        this.message?.let { text ->
-            // Set dismissOnBackPress to false so that the dialog doesn't eat the BackButton event
-            androidx.compose.ui.window.Dialog({}, DialogProperties(dismissOnBackPress = false)) {
-                Surface(
-                    shape = MaterialTheme.shapes.large,
-                    tonalElevation = AlertDialogDefaults.TonalElevation,
-                ) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            strokeCap = StrokeCap.Round,
-                            strokeWidth = 5.dp
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(text)
-                    }
-                }
+                is Content.CustomPrompt -> it.dialog(cancel)
             }
         }
     }
@@ -1068,8 +1067,8 @@ fun GreetingNoPermPreview() {
 @Composable
 fun SpinnerPreview() {
     CalProvExampleTheme {
-        SuspendDialog.show("Waiting for something...")
-        SuspendDialog.Dialog()
+        AsyncDialog.suspendMessage("Waiting for something...")
+        AsyncDialog.Dialog()
     }
 }
 @Preview(widthDp = PREVIEW_WIDTH)

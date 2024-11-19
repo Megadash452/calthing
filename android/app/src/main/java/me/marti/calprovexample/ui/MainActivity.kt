@@ -292,9 +292,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                // FIXME: Race Condition: SuspendDialog can show on top of AsyncDialog, blocking it unintentionally
                 AsyncDialog.Dialog()
-                SuspendDialog.Dialog()
             }
         }
     }
@@ -304,7 +302,7 @@ class MainActivity : ComponentActivity() {
         ExpandableFab.Action(Icons.Default.Create, "New blank calendar") {
             calendarWorkThread.launch {
                 calendarPermission.waitForPermission() ?: return@launch
-                AsyncDialog.showDialog { close ->
+                AsyncDialog.promptDialog { close ->
                     NewCalendarAction(
                         close = close,
                         submit = { name, color ->
@@ -317,14 +315,14 @@ class MainActivity : ComponentActivity() {
         ExpandableFab.Action(R.drawable.rounded_calendar_add_on_24, "Device calendar") {
             calendarWorkThread.launch {
                 // Get the Calendars in the device the user can copy
-                SuspendDialog.show("Searching for calendars")
+                AsyncDialog.suspendMessage("Searching for calendars")
                 val calendars = this.calendarPermission.waitForPermission()?.externalUserCalendars() ?: run {
                     showToast("Error getting calendars")
                     Log.e("CopyCalendar", "Could not get external calendars, either because of error or permissions denied")
                     return@launch
                 }
-                SuspendDialog.close()
-                AsyncDialog.showDialog { close ->
+                AsyncDialog.close()
+                AsyncDialog.promptDialog { close ->
                     CopyCalendarAction(
                         calendars = calendars.map { cal ->
                             ExternalUserCalendar(cal,
@@ -343,7 +341,7 @@ class MainActivity : ComponentActivity() {
                 // Select synDir before importing because it will be expected to Not be NULL.
                 if (syncDir.value == null) {
                     // Tell the user they will select syncDir
-                    if (!AsyncDialog.show("Select sync directory")) {
+                    if (!AsyncDialog.prompt("Select sync directory")) {
                         showToast("Import canceled")
                         return@launch
                     }
@@ -355,7 +353,7 @@ class MainActivity : ComponentActivity() {
                         return@launch
                     }
                     // Tell the user they will select the file to import
-                    AsyncDialog.showNoCancel("Select file to import")
+                    AsyncDialog.promptConfirm("Select file to import")
                 }
                 // The ACTION_OPEN_DOCUMENT Intent takes the MIME Types of files that can be opened
                 importFilesIntent.launch(CALENDAR_DOCUMENT_MIME_TYPE)
@@ -461,7 +459,7 @@ class MutableCalendarsList(
                     if (this.containsKey(tmpCal.name)) {
                         // In case of conflict, ask user whether to rename, overwrite, or don't import at all
                         var finalName: String? = null
-                        AsyncDialog.showDialog { close ->
+                        AsyncDialog.promptDialog { close ->
                             ImportFileExistsAction(
                                 name = tmpCal.name,
                                 rename = { newName -> finalName = newName },
@@ -589,7 +587,7 @@ class MutableCalendarsList(
                     // In case of conflict, ask user whether to rename, overwrite, or don't import at all
                     var finalName: String = result.calName
                     var choice = 0
-                    AsyncDialog.showDialog { close ->
+                    AsyncDialog.promptDialog { close ->
                         ImportFileExistsAction(
                             name = result.calName,
                             rename = { newName-> finalName = newName; choice = 1 },

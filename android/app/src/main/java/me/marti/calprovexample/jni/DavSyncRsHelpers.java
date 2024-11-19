@@ -11,15 +11,6 @@ import java.util.Objects;
 
 /** @noinspection unused*/
 public final class DavSyncRsHelpers {
-    static boolean checkUniqueName(@NonNull Context context, @NonNull String name) throws NullPointerException {
-        Boolean result = DavSyncRsKt.checkUniqueName(context.getContentResolver(), name);
-        if (result == null) {
-            throw new NullPointerException("Failed to query Content Provider (was NULL)");
-        } else {
-            return result;
-        }
-    }
-
     /** Gets the Uri that represents access to some directory tree.
      *  The Uri is obtained from a Document Uri that contains `"tree/{doc-id}`. */
     static Uri getDocumentTreeUri(@NonNull Uri docUri) {

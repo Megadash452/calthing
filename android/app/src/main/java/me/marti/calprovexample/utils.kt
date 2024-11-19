@@ -6,7 +6,7 @@ import android.util.Log
 import androidx.core.net.toUri
 import kotlinx.coroutines.runBlocking
 import me.marti.calprovexample.ui.MainActivity
-import me.marti.calprovexample.ui.SuspendDialog
+import me.marti.calprovexample.ui.AsyncDialog
 import me.marti.calprovexample.ui.isOnWorkThread
 import me.marti.calprovexample.ui.showToast
 import java.net.URLEncoder
@@ -136,7 +136,7 @@ fun Color(color: androidx.compose.ui.graphics.Color): Color {
 }
 
 /** Calls [execute()][ExecutorService.execute], running [command] in a *coroutine context*.
- * Can *optionally* show a [Dialog][SuspendDialog] with a **message** while [command] runs.
+ * Can *optionally* show a [Dialog][AsyncDialog] with a **message** while [command] runs.
  *
  * Will catch any **exceptions** that occur so that the main (UI) thread isn't terminated.
  *
@@ -146,12 +146,12 @@ fun Color(color: androidx.compose.ui.graphics.Color): Color {
  * without unnecessarily enqueueing more commands. */
 fun ExecutorService.launch(msg: String? = null, command: suspend () -> Unit) {
     if (isOnWorkThread()) runBlocking {
-        msg?.let { SuspendDialog.show(it) }
+        msg?.let { AsyncDialog.suspendMessage(it) }
         command()
-        msg?.let { SuspendDialog.close() }
+        msg?.let { AsyncDialog.close() }
     } else
         this.execute { runBlocking {
-            msg?.let { SuspendDialog.show(it) }
+            msg?.let { AsyncDialog.suspendMessage(it) }
             try {
                 command()
             } catch (e: Throwable) {
@@ -160,17 +160,8 @@ fun ExecutorService.launch(msg: String? = null, command: suspend () -> Unit) {
                     showToast("Error while running \"$msg\"")
                 } ?: showToast("Error occurred")
             }
-            msg?.let { SuspendDialog.close() }
+            msg?.let { AsyncDialog.close() }
         } }
-}
-
-/** Get the file name for an URI that is a file or directory path.
- *
- * Returns `NULL` if the URI is not a path. */
-fun Uri.fileName(): String? {
-    val path = this.lastPathSegment ?: return null
-    // first split the base of the path, then split the other components
-    return path.split(':', limit = 2).last().split('/').last()
 }
 
 fun fileNameWithoutExtension(fileName: String): String {

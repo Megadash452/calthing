@@ -17,7 +17,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.channels.Channel
 import me.marti.calprovexample.R
-import me.marti.calprovexample.launch
 
 private val PERMISSIONS = arrayOf("android.permission.READ_CALENDAR", "android.permission.WRITE_CALENDAR")
 
@@ -112,7 +111,7 @@ abstract class Permission(private val activity: MainActivity, private val onPerm
  *
  * ### Rationale Dialog
  *
- * This implementation uses [AsyncDialog] and [SuspendDialog] for the **Rationale Dialog**,
+ * This implementation uses [AsyncDialog] and [AsyncDialog] for the **Rationale Dialog**,
  * so ensure those are included in the composition.
  *
  * ## Bugs
@@ -184,7 +183,7 @@ class CalendarPermission(
     private suspend fun requestPermissionsAsync(): Boolean {
         if (this.shouldShowDialog()) {
             var response = false
-            AsyncDialog.showDialog { close ->
+            AsyncDialog.promptDialog { close ->
                 CalendarRationaleDialog(
                     dismiss = { close() },
                     confirm = { response = true; close() }
