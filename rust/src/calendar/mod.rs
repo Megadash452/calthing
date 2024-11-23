@@ -26,13 +26,15 @@ jni_fn! { me.marti.calprovexample.jni.DavSyncRs =>
         context: android.content.Context,
         file_name: String,
         color: me.marti.calprovexample.Color,
-        external_dir_uri: android.net.Uri,
+        external_dir_uri: Option<android.net.Uri>,
     ) {
-        let external_dir_uri = if external_dir_uri.is_null() {
-            None
-        } else {
-            Some(DocUri::from_tree_uri(env, external_dir_uri).unwrap())
-        };
+        let davsyncrs = env.get_static_field("me/marti/calprovexample/jni/DavSyncRs", "INSTANCE", "Lme/marti/calprovexample/jni/DavSyncRs;")
+            .unwrap().l().unwrap();
+        call!(davsyncrs.initialize_dirs(
+            android.content.Context(context),
+            android.net.Uri(external_dir_uri.to_object(env))
+        ) -> void);
+        let external_dir_uri = external_dir_uri.map(|uri| DocUri::from_tree_uri(env, uri).unwrap());
         
         // Check for illegal characters
         if file_name.contains(ILLEGAL_FILE_CHARACTERS) {
@@ -63,7 +65,7 @@ jni_fn! { me.marti.calprovexample.jni.DavSyncRs =>
     pub fn write_file_data_to_calendar<'local>(
         perm: me.marti.calprovexample.ui.CalendarPermission,
         name: String,
-        color: me.marti.calprovexample.Color
+        color: Option<me.marti.calprovexample.Color>
     ) {
         #[derive(FromException)]
         #[class(me.marti.calprovexample.ElementExistsException)]
@@ -75,7 +77,7 @@ jni_fn! { me.marti.calprovexample.jni.DavSyncRs =>
         let _ = call!(static me.marti.calprovexample.calendar.ActionsKt.newCalendar(
             me.marti.calprovexample.ui.CalendarPermissionScope(perm),
             String(name),
-            me.marti.calprovexample.Color(color),
+            me.marti.calprovexample.Color(color.to_object(env)),
             kotlin.coroutines.Continuation(JObject::null())
         ) -> Result<Option<java.lang.Object>, ElementExists>)
             .inspect(|r| if r.is_none() { panic!("Failed creating calendar") });

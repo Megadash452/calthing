@@ -56,7 +56,15 @@ public final class DavSyncRsHelpers {
     }
 
     /** Appends the path to the end of the Uri's document path. */
-    static @NonNull Uri joinDocUri(@NonNull Uri docUri, @NonNull String path) throws UnsupportedEncodingException {
-        return Uri.parse(docUri + URLEncoder.encode("/" + path, "utf-8"));
+    static @NonNull Uri joinDocUri(@NonNull Uri docUri, @NonNull String path) {
+        try {
+            return Uri.parse(docUri + URLEncoder.encode("/" + path, "utf-8"));
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException("Unreachable: utf-8 is a valid encoding");
+        }
     }
+//    /** Returns the Uri of the Document's parent Document */
+//    static @NonNull Uri docUriParent(@NonNull Uri docUri) {
+//
+//    }
 }

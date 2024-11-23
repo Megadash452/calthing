@@ -11,7 +11,7 @@ impl<'local> Cursor<'local> {
     }
 
     /// Query the Android Content Provider at some *URI*, and get a cursor as a result.
-    pub fn query(
+    pub fn query_str(
         env: &mut JNIEnv<'local>,
         context: &JObject,
         uri: &str,
@@ -20,9 +20,22 @@ impl<'local> Cursor<'local> {
         selection_args: &[&str],
         sorting: &str,
     ) -> Result<Self, String> {
+        let uri = call!(static android.net.Uri.parse(String(uri)) -> android.net.Uri);
+        Self::query(env, context, &uri, projection, selection, selection_args, sorting)
+    }
+
+    /// Query the Android Content Provider at some *URI*, and get a cursor as a result.
+    pub fn query(
+        env: &mut JNIEnv<'local>,
+        context: &JObject,
+        uri: &JObject,
+        projection: &[&str],
+        selection: &str,
+        selection_args: &[&str],
+        sorting: &str,
+    ) -> Result<Self, String> {
         let content_resolver =
             call!(context.getContentResolver() -> android.content.ContentResolver);
-        let uri = call!(static android.net.Uri.parse(String(uri)) -> android.net.Uri);
         let result = call!(content_resolver.query(
             android.net.Uri(uri),
             [String](projection),
@@ -50,5 +63,10 @@ impl<'local> Cursor<'local> {
 
     pub fn close(self, env: &mut JNIEnv) {
         call!((self.0).close() -> void)
+    }
+}
+impl<'local> AsRef<JObject<'local>> for Cursor<'local> {
+    fn as_ref(&self) -> &JObject<'local> {
+        &self.0
     }
 }

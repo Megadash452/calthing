@@ -2,6 +2,7 @@ package me.marti.calprovexample
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.util.Log
 import androidx.core.net.toUri
 import kotlinx.coroutines.runBlocking
@@ -202,6 +203,10 @@ fun Uri.join(path: String): Uri {
     val slash = if (this.lastPathSegment!!.last() == '/') "" else "/"
     return "${this}${URLEncoder.encode("$slash$path", "utf-8")}".toUri()
 }
+
+/** Convert **Tree URI** to an URI that can be used by the DocumentsProvider */
+fun treeUriToDocUri(treeUri: Uri): Uri
+    = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
 
 /** Construct the path for a file that is in the internal app directory.
  *

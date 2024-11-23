@@ -96,7 +96,7 @@ impl<'local> DocUri<'local> {
         let mut fd = call!(content_resolver.openAssetFileDescriptor(
             android.net.Uri(self.0),
             String(options.to_string()),
-        ) -> Result<Option<android.content.res.AssetFileDescriptor>, String>)
+        ) -> Result<Option<android.content.res.AssetFileDescriptor>, String/*FileNotFoundException*/>)
             .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
             .ok_or_else(|| io::Error::other("Failed to open file because ContentProvider crashed"))?;
         fd = call!(fd.getParcelFileDescriptor() -> android.os.ParcelFileDescriptor);
@@ -132,6 +132,8 @@ impl<'local> DocUri<'local> {
     }
 
     /// Appends **path** to the end of the Document Path.
+    /// 
+    /// Similar to [`Path::join()`].
     pub fn join(&self, env: &mut JNIEnv<'local>, path: impl AsRef<Path>) -> Self {
         let path = path
             .as_ref()
@@ -141,9 +143,64 @@ impl<'local> DocUri<'local> {
             call!(static me.marti.calprovexample.jni.DavSyncRsHelpers.joinDocUri(
                 android.net.Uri(self.0),
                 String(path)
-            ) -> Option<android.net.Uri>)
-                .unwrap_or_else(|| panic!("Passed in an invalid Uri to joinDocUri: {}", call!((self.0).toString() -> String))),
+            ) -> android.net.Uri)
         )
+    }
+
+    /// Returns the [`Uri`] of the directory that the Document pointed at by this [`Uri`] is in,
+    /// a.k.a the [`Uri`] of the **parent Documetni**.
+    /// 
+    /// Similar to [`Path::parent()`].
+    /// 
+    /// [`Uri`]: DocUri
+    pub fn parent(&self, env: &mut JNIEnv<'local>) -> Self {
+        println!("Uri: \"{}\"", self.to_string(env));
+        todo!("Call me.marti.calprovexample.jni.DavSyncRsHelpers.docUriParent()");
+    }
+
+    /// Give the Document pointed at by this [`DocUri`] different name.
+    /// The new name must include the *file extension*.
+    /// 
+    /// Checks if a Document with the new name *already exists* and returns [`io::ErrorKind::AlreadyExists`].
+    /// 
+    /// Returns the [`DocUri`] with the new name.
+    pub fn rename(&self, context: &JObject, new_name: &str, env: &mut JNIEnv<'local>) -> io::Result<Self> {
+        let content_resolver = call!(context.getContentResolver() -> android.content.ContentResolver);
+        // The suposed Uri of the Document under the new name
+        let expected_new_uri = self.parent(env).join(env, new_name);
+
+        // Check if file with new_name exists
+        call!(static android.provider.DocumentsContract.isDocumentUri(
+            android.content.Context(context),
+            android.net.Uri(expected_new_uri.as_ref())
+        ) -> bool);
+
+        // Rename Document
+        let new_uri = call!(static android.provider.DocumentsContract.renameDocument(
+            android.content.ContentResolver(content_resolver),
+            android.net.Uri(self.0),
+            String(new_name)
+        ) -> Result<Option<android.net.Uri>, String/*FileNotFoundException*/>)
+            .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
+            .ok_or_else(|| io::Error::other("Failed to open file because ContentProvider crashed"))?;
+        let new_uri = Self::from_doc_uri(env, new_uri)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+
+        // Check that we got the expected Uri after rename
+        let new_uri_str = new_uri.to_string(env);
+        let expected_new_uri_str = expected_new_uri.to_string(env);
+        if new_uri_str != expected_new_uri_str {
+            return Err(io::Error::other(format!("Expected Uri does not match actual Uri after rename:\n\
+                Expected Uri: \"{expected_new_uri_str}\"\n\
+                Actual Uri: \"{new_uri_str}\""
+            )))
+        }
+
+        Ok(new_uri)
+    }
+
+    pub fn to_string(&self, env: &mut JNIEnv) -> String {
+        call!((self.0).toString() -> String)
     }
 }
 impl<'local> AsRef<JObject<'local>> for DocUri<'local> {
@@ -168,9 +225,7 @@ impl<'local> ExternalDir<'local> {
         if !call!(static me.marti.calprovexample.jni.DavSyncRsHelpers.isDir(
             android.content.Context(context),
             android.net.Uri(doc_uri.as_ref())
-        ) -> Result<bool, String>)
-        .ok()?
-        {
+        ) -> Result<bool, String>).ok()? {
             return None;
         }
 
@@ -184,7 +239,7 @@ impl<'local> ExternalDir<'local> {
     }
 
     pub fn entries(&self, env: &mut JNIEnv<'local>) -> Box<[ExternalDirEntry<'local>]> {
-        // // Get the treeUri so that entries can also have the tree id in their URI
+        // Get the treeUri so that entries can also have the tree id in their URI
         let tree_uri = call!(static me.marti.calprovexample.jni.DavSyncRsHelpers.getDocumentTreeUri(
             android.net.Uri(self.doc_uri.as_ref())
         ) -> android.net.Uri);
@@ -199,10 +254,45 @@ impl<'local> ExternalDir<'local> {
                 panic!("Failed to query entries of {doc_uri_str:?}:\n{e}")
             }),
         );
+        // TODO: query Content provider from Rust directly
+        // let cursor = {
+        //     // URI that tells the Content Provider that we want to query the CHILDREN of the directory
+        //     let children_uri = call!(static android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
+        //         android.net.Uri(tree_uri),
+        //         String(self.doc_uri.file_name(env))
+        //     ) -> android.net.Uri);
+        //     fn get_projection_field(field: &str, env: &mut JNIEnv) -> String {
+        //         let call = env.get_static_field("android/provider/DocumentsContract$Document", field, "java/lang/String");
+        //         let call = env.get_static_field_unchecked(
+        //             "android/provider/DocumentsContract$Document",
+        //             ("android/provider/DocumentsContract$Document", field, "java/lang/String"),
+        //             jni::signature::JavaType::Object("Ljava/lang/String;".to_string())
+        //         );
+        //         ez_jni::__throw::panic_uncaught_exception(env, ez_jni::__throw::Either::Left("android/provider/DocumentsContract$Document"), field);
+        //         get_string(
+        //             call
+        //                 .unwrap_or_else(|err| panic!("Error getting field \"{field}\": {err}"))
+        //                 .l().unwrap_or_else(|err| panic!("Expected field \"{field}\" to be Object: {err}"))
+        //                 .into(),
+        //         env)
+        //     }
+        //     let projection = [
+        //         get_projection_field("COLUMN_DOCUMENT_ID", env),
+        //         get_projection_field("COLUMN_MIME_TYPE", env),
+        //         get_projection_field("COLUMN_FLAGS", env),
+        //     ];
+        //     let projection = projection.iter()
+        //         .map(|s| s.as_str())
+        //         .collect::<Box<[_]>>();
+
+        //     Cursor::query(env, &self.context, &children_uri, &projection, "", &[], "")
+        //         .unwrap_or_else(|e| panic!("Failed to query entries of {:?}:\n{e}", self.doc_uri.to_string(env)))
+        // };
 
         let mut entries = Vec::with_capacity(cursor.row_count(env));
+        call!((cursor.as_ref()).moveToFirst() -> bool);
         // Iterate through the results of the query to create Dir Entries
-        while cursor.next(env) {
+        loop {
             let doc_id = cursor.get_string(env, 0);
             let doc_uri = call!(static android.provider.DocumentsContract.buildDocumentUriUsingTree(
                 android.net.Uri(tree_uri),
@@ -217,6 +307,8 @@ impl<'local> ExternalDir<'local> {
                 mime_type,
                 flags,
             });
+
+            if !cursor.next(env) { break; }
         }
         cursor.close(env);
 
@@ -437,7 +529,7 @@ impl<'local> ExternalDirEntry<'local> {
         }
     }
 
-    /// See [DocUri::open_file()].
+    /// See [`DocUri::open_file()`].
     pub fn open_file(
         &self,
         env: &mut JNIEnv<'local>,

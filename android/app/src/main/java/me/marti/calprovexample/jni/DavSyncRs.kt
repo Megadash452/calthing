@@ -1,15 +1,25 @@
+@file:Suppress("unused")
+
 package me.marti.calprovexample.jni
 
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.provider.CalendarContract
+import android.provider.DocumentsContract
+import androidx.compose.material3.SnackbarResult
+import kotlinx.coroutines.runBlocking
 import me.marti.calprovexample.Color
 import me.marti.calprovexample.calendar.DisplayCalendarProjection
 import me.marti.calprovexample.calendar.getCursor
+import me.marti.calprovexample.launch
+import me.marti.calprovexample.ui.AsyncDialog
 import me.marti.calprovexample.ui.CalendarPermissionScope
 import me.marti.calprovexample.ui.DEFAULT_CALENDAR_COLOR
+import me.marti.calprovexample.ui.ImportFileExistsAction
 import me.marti.calprovexample.ui.MainActivity
+import me.marti.calprovexample.ui.calendarWorkThread
+import java.io.File as Path
 
 /** Rust functions that can be called from Java.
  * All the extern functions declared in this class are defined in `project root/rust/src/lib.rs` */
@@ -19,7 +29,7 @@ object DavSyncRs {
 
     /** Initialize the **internal** and **external** directories by creating all necessary sub-directories (e.g. calendars and contacts directories).
      * @param externalDirUri The *Uri* for the directory in shared storage the user picked to sync files.  */
-    external fun initialize_dirs(context: Context, externalDirUri: Uri)
+    external fun initialize_dirs(context: Context, externalDirUri: Uri?)
 
     external fun merge_dirs(activity: MainActivity, externalDirUri: Uri)
 
@@ -55,6 +65,7 @@ object DavSyncRs {
     external fun write_color_to_calendar_file(name: String, color: Color)
 }
 
+@Suppress("unused")
 fun checkUniqueName(contentResolver: ContentResolver, name: String): Boolean? {
     // Check that a calendar with this name doesn't already exist
     return contentResolver.acquireContentProviderClient(CalendarContract.CONTENT_URI)?.use { client ->
@@ -64,6 +75,59 @@ fun checkUniqueName(contentResolver: ContentResolver, name: String): Boolean? {
         )?.use { cursor ->
             // If there already exists a calendar with this name,
             cursor.moveToFirst()
+        }
+    }
+}
+
+
+sealed class FileConflictResponse {
+    data object Canceled: FileConflictResponse()
+    data object OverWrite: FileConflictResponse()
+    /** Rename external file and create new calendar with it */
+    class Rename(val newName: String): FileConflictResponse()
+}
+/** Show a [Dialog][AsyncDialog] asking the user which *calendar file* they want to keep
+ * when there are conflicts between the **internal** and **external** directories
+ * when the user selects a new **external** directory.
+ *
+ * This function *blocks* the thread until the user responds. */
+fun showFileConflictDialog(calName: String): FileConflictResponse {
+    return runBlocking {
+        var response: FileConflictResponse = FileConflictResponse.Canceled
+        AsyncDialog.promptDialog { close ->
+            ImportFileExistsAction(
+                name = calName,
+                rename = { newName -> response = FileConflictResponse.Rename(newName) },
+                overwrite = { response = FileConflictResponse.OverWrite },
+                close = close,
+            )
+        }
+        response
+    }
+}
+/** Shows a `SnackBar` to the user as a result of them choosing [`OverWrite`][FileConflictResponse.OverWrite] in [showFileConflictDialog].
+ *
+ * This is only called by [DavSyncRs.merge_dirs], and when [MainActivity.userCalendars] is `null`. */
+fun MainActivity.showOverwriteSnackBar(deletedFilePath: String, internalFilePath: String) {
+    this.showSnackbar("Calendar overwritten") { result ->
+        when (result) {
+            // Restore Calendar when user presses "Undo"
+            SnackbarResult.ActionPerformed -> calendarWorkThread.launch {
+                try {
+                    Path(deletedFilePath).copyTo(Path(internalFilePath), overwrite = true)
+                    java.nio.file.Files.delete(Path(deletedFilePath).toPath())
+                } catch (e: Exception) {
+                    throw Exception("Error restoring file \"$deletedFilePath\" in to Internal directory: $e")
+                }
+            }
+            // Fully delete Calendar by deleting file in recycle bin
+            SnackbarResult.Dismissed -> calendarWorkThread.launch {
+                try {
+                    java.nio.file.Files.delete(Path(deletedFilePath).toPath())
+                } catch (e: Exception) {
+                    throw Exception("Error deleting file \"$deletedFilePath\" in deleted directory: $e")
+                }
+            }
         }
     }
 }

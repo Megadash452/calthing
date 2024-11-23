@@ -66,6 +66,7 @@ import me.marti.calprovexample.fileNameWithoutExtension
 import me.marti.calprovexample.getAppPreferences
 import me.marti.calprovexample.internalFile
 import me.marti.calprovexample.launch
+import me.marti.calprovexample.treeUriToDocUri
 import me.marti.calprovexample.ui.theme.CalProvExampleTheme
 import java.io.IOException
 import java.lang.ref.WeakReference
@@ -96,7 +97,7 @@ class MainActivity : ComponentActivity() {
         Log.d("MainActivity", "Calendar Permission granted")
         val perm = this.calendarPermission.usePermission()!!
 
-        // Add files that are not in the content provider
+        // Add internal files that are not in the content provider
         calendarWorkThread.launch("Syncing Calendars") {
             val internalFiles = Path("${this@MainActivity.filesDir.path}/calendars/").listFiles()
                 ?: return@launch
@@ -143,14 +144,12 @@ class MainActivity : ComponentActivity() {
 
             // Preserve access to the directory. Otherwise, access would be revoked when app is closed.
             contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            // Convert Tree URI to an URI that can be used by the DocumentsProvider
-            val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
+            val docUri = treeUriToDocUri(treeUri)
 
             // Create calendar and contacts dirs in internal and external directories.
             DavSyncRs.initialize_dirs(this.baseContext, docUri)
             // Copy files from internal to external, and vice versa, resolving conflicts with user
             DavSyncRs.merge_dirs(this, docUri)
-            this.userCalendars.value?.syncWithProvider()
 
             this.syncDir.value = docUri
             dirSelectChannel.trySend(true)
@@ -466,7 +465,6 @@ class MutableCalendarsList(
                                 overwrite = {
                                     finalName = tmpCal.name
                                     this.remove(tmpCal.name)
-                                    this.calDeletedSnackbar(tmpCal.name)
                                 },
                                 close = close
                             )
@@ -725,7 +723,7 @@ class MutableCalendarsList(
 
         // Copy file to internal dir
         try {
-            deletedFile.copyTo(internalFile)
+            deletedFile.copyTo(internalFile, overwrite = true)
         } catch (e: Exception) {
             throw IOException("Error copying \"$fileName\" from \"deleted/$dest/\" to \"$dest/\": $e")
         }
